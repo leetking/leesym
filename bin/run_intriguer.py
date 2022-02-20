@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 import argparse
 import time
 import os
@@ -27,9 +27,9 @@ def check_binary(target_bin):
 
     arch = stdout.read()
 
-    if arch.find('elf32') >= 0:
+    if arch.find(b'elf32') >= 0:
         return 32
-    elif arch.find('elf64-x86-64') >= 0:
+    elif arch.find(b'elf64-x86-64') >= 0:
         return 64
     else:
         return -1
@@ -81,8 +81,9 @@ def generate_testcase(input_file, outdir):
                     if len(v) % 2 == 1:
                         v = '0' + v
 
-                    output_data = output_data[:int(start)] + v.decode('hex') + output_data[int(start)+int(size):]
-                    
+                    output_data = output_data[:int(start)] + v + output_data[int(start)+int(size):]
+                    #output_data = output_data[:int(start)] + v.decode('hex') + output_data[int(start)+int(size):]
+
                     fout = open(outdir + '/' + str(i) + '_' + field_marker + '_' + str(start) + '_' + str(size), 'w')
                     fout.write(output_data)
                     fout.close()
