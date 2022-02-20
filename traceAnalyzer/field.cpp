@@ -8,6 +8,9 @@
 #include <iomanip>
 #include <cmath>
 
+// boost wrap for gmp lib
+#include <boost/multiprecision/gmp.hpp>
+
 #include "traceAnalyzer.hpp"
 #include "utils.hpp"
 #include "field.hpp"
@@ -609,10 +612,14 @@ void Field::getInterestingValueComparison(FieldValue* fv){
             // queryResult.push_back(ullToStr(strToUllRev(operand->getValue(size), size)+1, size));
             // queryResult.push_back(ullToStr(strToUllRev(operand->getValue(size), size)-1, size));
 
-            llvm::APInt tempInt;
-            tempInt = llvm::APInt(size*8, operand->getValue(size), 16);
-            queryResult.push_back((tempInt+1).toString(16, false));
-            queryResult.push_back((tempInt-1).toString(16, false));
+            // get int from hex string, then +1, -1 to hex string
+            boost::multiprecision::mpz_int num;
+            mpz_set_str(num.backend().data(), operand->getValue(size).c_str(), 16);
+            boost::multiprecision::mpz_int num_add1(num+1);
+            boost::multiprecision::mpz_int num_sub1(num-1);
+
+            queryResult.push_back(num_add1.str(0, std::ios_base::hex));
+            queryResult.push_back(num_sub1.str(0, std::ios_base::hex));
         }
 
         for(itquery = queryResult.begin(); itquery != queryResult.end(); itquery++){

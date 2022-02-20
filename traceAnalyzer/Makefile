@@ -1,16 +1,15 @@
 CXX  = g++
-CXXFLAGS = -std=c++11 -O3 -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -I/usr/lib/llvm-5.0/include 
+CXXFLAGS = -std=c++11 -O3 -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS
 TARGET = traceAnalyzer
 OBJECTS = traceAnalyzer.o utils.o fieldValue.o operand.o trace.o field.o reduction.o logging.o solver.o
-LIB_PATH = /usr/lib/llvm-5.0/lib/
-LIBS = -lz3 -lLLVM-5.0
+LIBS = -lz3 -lgmp
 
 all : $(TARGET)
 
 $(TARGET): $(OBJECTS)
 	$(CXX) -L$(LIB_PATH) $(CXXFLAGS) -o $@ $^ $(LIBS)
 	rm *.o
-	
+
 traceAnalyzer.o : traceAnalyzer.cpp
 	$(CXX) $(CXXFLAGS) -c -o traceAnalyzer.o traceAnalyzer.cpp
 
