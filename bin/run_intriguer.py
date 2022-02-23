@@ -71,7 +71,7 @@ def generate_testcase(input_file, outdir):
                         if start_ == 'x': start_ = start
                         if size_ == 'x': size_ = size
 
-                        output_data = output_data[:int(start_)] + value_.decode('hex') + output_data[int(start_)+int(size_):]
+                        output_data = output_data[:int(start_)] + value_ + output_data[int(start_)+int(size_):]
 
                     fout = open(outdir + '/' + str(i) + '_' + field_marker + '_' + str(start) + '_' + str(size) + '_complex', 'w')
                     fout.write(output_data)
@@ -82,7 +82,6 @@ def generate_testcase(input_file, outdir):
                         v = '0' + v
 
                     output_data = output_data[:int(start)] + v + output_data[int(start)+int(size):]
-                    #output_data = output_data[:int(start)] + v.decode('hex') + output_data[int(start)+int(size):]
 
                     fout = open(outdir + '/' + str(i) + '_' + field_marker + '_' + str(start) + '_' + str(size), 'w')
                     fout.write(output_data)
