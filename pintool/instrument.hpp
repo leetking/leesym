@@ -3,18 +3,23 @@
 
 #include "pin.H"
 
-#define REG_SIZE_1  1
-#define REG_SIZE_2  2
-#define REG_SIZE_4  4
-#define REG_SIZE_8  8
-#define REG_SIZE_16 16
-#define REG_SIZE_32 32
+enum {
+    REG_SIZE_1 = 1,
+    REG_SIZE_2 = 2,
+    REG_SIZE_4 = 4,
+    REG_SIZE_8 = 8,
+    REG_SIZE_16 = 16,
+    REG_SIZE_32 = 32,
+};
+
+// max 512 bits
+enum { REGISTER_WIDTH = 64 };
 
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
     REG reg;
     UINT64 bitmap;
-    UINT64 offset[32];
+    UINT64 offset[REGISTER_WIDTH];
 };
 
 struct MEM_TAINT {
@@ -22,13 +27,13 @@ struct MEM_TAINT {
     UINT64 offset;
 };
 
-struct MEM_TAINT_MAP{
+struct MEM_TAINT_MAP {
     UINT64 address;
     UINT64 bitmap;
     UINT64 offset[32];
 };
 
-struct MEM_TAINT_BASE{
+struct MEM_TAINT_BASE {
     UINT64 base;
     vector<MEM_TAINT*> vecAddressTainted;
 };
