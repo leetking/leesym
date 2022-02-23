@@ -12,18 +12,42 @@ enum {
     REG_SIZE_32 = 32,
 };
 
+enum {
+    INVALID_ADDRESS = (UINT64)-1,
+    INVALID_OFFSET = (UINT64)-1,
+};
 // max 512 bits
-enum { REGISTER_WIDTH = 64 };
+enum {
+    REGISTER_WIDTH = 64,
+};
+#define REGISTER_INVALID REG_LAST
 
 #define get_bitmap(map, offset) (map & (0x1UL<<(offset)))
 #define set_bitmap(map, offset) (map |= (0x1UL<<(offset)))
 #define clr_bitmap(map, offset) (map &= (~(0x1UL<<(offset))))
 //#define merge_bitmap(map1, map2) ((map1) |= (map2))
+
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
     REG reg;
     UINT64 bitmap;
     UINT64 offset[REGISTER_WIDTH];
+
+    Register():
+        Register(REGISTER_INVALID, 0x0, nullptr) {
+    }
+
+    Register(REG r, UINT64 bits, UINT64 offs[])
+        : reg(r), bitmap(bits) {
+        for (UINT64 i = 0; i < REGISTER_WIDTH; ++i)
+            offset[i] = INVALID_OFFSET;
+        if (offs) {
+            for (UINT64 i = 0; i < REGISTER_WIDTH; ++i) {
+                if (get_bitmap(bits, i))
+                    offset[i] = offs[i];
+            }
+        }
+    }
 };
 
 struct MemBlock {
@@ -32,10 +56,6 @@ struct MemBlock {
     UINT64 offset[32];
 };
 
-enum {
-    INVALID_ADDRESS = (UINT64)-1,
-    INVALID_OFFSET = (UINT64)-1,
-};
 struct Byte {
     UINT64 address;
     UINT64 offset;
@@ -74,21 +94,20 @@ struct Page {
     // TODO Add deconstructor for Page
 };
 
-bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset);
-bool checkAlreadyRegTainted(REG reg);
-
 Byte* getTaintByte(UINT64 address);
 bool isByteTainted(UINT64 address);
-
-void removeTaintByte(UINT64 address);
-void removeTaintBlock(UINT64 address, UINT64 size);
 void addTaintByte(UINT64 address, UINT64 offset);
 void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]);
+void removeTaintByte(UINT64 address);
+void removeTaintBlock(UINT64 address, UINT64 size);
 
-Register* getTaintRegPointer(REG reg);
-void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size);
+Register* getTaintRegister(REG reg);
+bool isRegisterOffsetTainted(REG reg, UINT8 offset);
+bool isRegisterTainted(REG reg);
+void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[]);
 bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]);
-bool removeRegTainted(REG reg);
+bool removeTaintRegister(REG reg);
+
 
 extern ofstream output;
 

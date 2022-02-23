@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
@@ -17,8 +18,10 @@ list<Page*> g_pages;
 list<Register*> g_registers;
 
 // operations for memory bytes
-Byte* getTaintByte(UINT64 addr) {
+Byte* getTaintByte(UINT64 addr)
+{
     for (auto page : g_pages) {
+        // TODO Optimize with LRU algorithm
         if (page->base == page_base(addr))
             return page->bytes[page_addr(addr)];
     }
@@ -26,8 +29,8 @@ Byte* getTaintByte(UINT64 addr) {
     return nullptr;
 }
 
-inline
-bool isByteTainted(UINT64 addr) {
+bool isByteTainted(UINT64 addr)
+{
     return getTaintByte(addr);
 }
 
@@ -67,7 +70,8 @@ void addTaintByte(UINT64 addr, UINT64 offset)
     g_pages.push_front(page);
 }
 
-void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
+void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[])
+{
     // assert(size is 1, 2, 4, 8, 16 etc)
     for (UINT64 i = 0; i < size; i++) {
 
@@ -84,1078 +88,820 @@ void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
 
 
 // operations for registers
-Register* getTaintRegPointer(REG reg){
-    list<Register*>::iterator i;
-
-    for(i = g_registers.begin(); i != g_registers.end(); i++){
-        if((*i)->reg == reg){
-            return *i;
-        }
-    }
-
-    return NULL;
-}
-
-bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
-    list<Register*>::iterator i;
-
-    for(i = g_registers.begin(); i != g_registers.end(); i++){
-        if((*i)->reg == reg){
-            UINT64 bitmap = (*i)->bitmap;
-
-            if (get_bitmap(bitmap, offset)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool checkAlreadyRegTainted(REG reg)
+Register* getTaintRegister(REG reg)
 {
-    list<Register*>::iterator i;
+    for (auto registor : g_registers) {
+        if (registor->reg == reg)
+            return registor;
+    }
 
-    for(i = g_registers.begin(); i != g_registers.end(); i++){
-        if((*i)->reg == reg){
-            return true;
+    return nullptr;
+}
+
+bool isRegisterOffsetTainted(REG reg, UINT8 offset)
+{
+    Register const* registor = getTaintRegister(reg);
+    return registor && get_bitmap(registor->bitmap, offset);
+}
+
+bool isRegisterTainted(REG reg)
+{
+    return getTaintRegister(reg);
+}
+
+void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[])
+{
+    // assert(size is 1, 2, 4, 8 etc)
+#define cut_bitmap(map, bits) (map &= ((0x1<<(bits)) - 1))
+    cut_bitmap(bitmap, size);
+    if (0x0 == bitmap)
+        return;
+
+    Register* new_reg = new Register(reg, bitmap, offset);
+    for (auto& registor : g_registers) {
+        if (registor->reg == reg) {
+            delete registor;
+            registor = new_reg;
+            return;
         }
     }
 
-    return false;
-}
-
-void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size){
-    Register* tempReg = new Register;
-
-    tempReg->reg = reg;
-    tempReg->bitmap = bitmap & ((0x1 << size) - 1);
-
-    for(UINT64 i = 0; i < size; i++){
-        if (get_bitmap(tempReg->bitmap, i))
-            tempReg->offset[i] = offset[i];
-        else
-            tempReg->offset[i] = -1;
-    }
-
-    g_registers.push_front(tempReg);
-
+    // new register
+    g_registers.push_front(new_reg);
+#undef cut_bitmap
 }
 
 /* TODO: correctly handle registers*/
-bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
-    if(checkAlreadyRegTainted(reg) == true){
-        removeRegTainted(reg);
-    }
+bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[])
+{
+    if (reg == REGISTER_INVALID || 0x0 == bitmap)
+        return false;
 
-    Register* tempReg;
-
-    switch(reg){
-        #if defined(TARGET_IA32E)
-        case REG_RAX:  
-            pushTaintReg(REG_RAX, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_EAX:  
-            pushTaintReg(REG_EAX, bitmap, offset, REG_SIZE_4);
-
-        case REG_AX:   
-            pushTaintReg(REG_AX, bitmap, offset, REG_SIZE_2);
-     
-        case REG_AH:   
-            tempReg = new Register;
-            tempReg->reg = REG_AH;
-            tempReg->bitmap = bitmap & 0x2;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[1] = offset[1];
-            else
-                tempReg->offset[1] = -1;
-
-            g_registers.push_front(tempReg);
-
-        case REG_AL: 
-            if(reg == REG_AH) break;
-
-            tempReg = new Register;
-            tempReg->reg = REG_AL;
-            tempReg->bitmap = bitmap & 0x1;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[0] = offset[0];
-            else
-                tempReg->offset[0] = -1;
-            g_registers.push_front(tempReg);
-            
+    switch (reg) {
+#if defined(TARGET_IA32E)
+    case REG_RAX:
+        addTaintRegister(REG_RAX, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_EAX:
+        addTaintRegister(REG_EAX, REG_SIZE_4, bitmap, offset);
+    case REG_AX:
+        addTaintRegister(REG_AX, REG_SIZE_2, bitmap, offset);
+    case REG_AH:
+        addTaintRegister(REG_AH, REG_SIZE_1, bitmap, offset);
+    case REG_AL:
+        if(reg == REG_AH)
             break;
+        addTaintRegister(REG_AL, REG_SIZE_1, bitmap, offset);
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RBX:  
-            pushTaintReg(REG_RBX, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_EBX: 
-            pushTaintReg(REG_EBX, bitmap, offset, REG_SIZE_4);
-
-        case REG_BX: 
-            pushTaintReg(REG_BX, bitmap, offset, REG_SIZE_2);
-
-        case REG_BH:  
-            tempReg = new Register;
-            tempReg->reg = REG_BH;
-            tempReg->bitmap = bitmap & 0x2;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[1] = offset[1];
-            else
-                tempReg->offset[1] = -1;
-            g_registers.push_front(tempReg);
-
-        case REG_BL: 
-            if(reg == REG_BH) break;
-
-            tempReg = new Register;
-            tempReg->reg = REG_BL;
-            tempReg->bitmap = bitmap & 0x1;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[0] = offset[0];
-            else
-                tempReg->offset[0] = -1;
-            g_registers.push_front(tempReg);
-
+#if defined(TARGET_IA32E)
+    case REG_RBX:
+        addTaintRegister(REG_RBX, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_EBX:
+        addTaintRegister(REG_EBX, REG_SIZE_4, bitmap, offset);
+    case REG_BX:
+        addTaintRegister(REG_BX, REG_SIZE_2, bitmap, offset);
+    case REG_BH:
+        addTaintRegister(REG_BH, REG_SIZE_1, bitmap, offset);
+    case REG_BL:
+        if(reg == REG_BH)
             break;
+        addTaintRegister(REG_BL, REG_SIZE_1, bitmap, offset);
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RCX: 
-            pushTaintReg(REG_RCX, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_ECX: 
-            pushTaintReg(REG_ECX, bitmap, offset, REG_SIZE_4);
-
-        case REG_CX: 
-            pushTaintReg(REG_CX, bitmap, offset, REG_SIZE_2);
-
-        case REG_CH:  
-            tempReg = new Register;
-            tempReg->reg = REG_CH;
-            tempReg->bitmap = bitmap & 0x2;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[1] = offset[1];
-            else
-                tempReg->offset[1] = -1;
-            g_registers.push_front(tempReg);
-
-        case REG_CL: 
-            if(reg == REG_CH) break;
-
-            tempReg = new Register;
-            tempReg->reg = REG_CL;
-            tempReg->bitmap = bitmap & 0x1;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[0] = offset[0];
-            else
-                tempReg->offset[0] = -1;
-            g_registers.push_front(tempReg);
-
+#if defined(TARGET_IA32E)
+    case REG_RCX:
+        addTaintRegister(REG_RCX, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_ECX:
+        addTaintRegister(REG_ECX, REG_SIZE_4, bitmap, offset);
+    case REG_CX:
+        addTaintRegister(REG_CX, REG_SIZE_2, bitmap, offset);
+    case REG_CH:
+        addTaintRegister(REG_CH, REG_SIZE_1, bitmap, offset);
+    case REG_CL:
+        if(reg == REG_CH)
             break;
+        addTaintRegister(REG_CL, REG_SIZE_1, bitmap, offset);
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RDX:  
-            pushTaintReg(REG_RDX, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_EDX:  
-            pushTaintReg(REG_EDX, bitmap, offset, REG_SIZE_4);
-
-        case REG_DX:  
-            pushTaintReg(REG_DX, bitmap, offset, REG_SIZE_2);
-
-        case REG_DH:   
-            tempReg = new Register;
-            tempReg->reg = REG_DH;
-            tempReg->bitmap = bitmap & 0x2;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[1] = offset[1];
-            else
-                tempReg->offset[1] = -1;
-            g_registers.push_front(tempReg);
-
-        case REG_DL:
-            if(reg == REG_DH) break;
-
-            tempReg = new Register;
-            tempReg->reg = REG_DL;
-            tempReg->bitmap = bitmap & 0x1;
-            if(tempReg->bitmap != 0)
-                tempReg->offset[0] = offset[0];
-            else
-                tempReg->offset[0] = -1;
-            g_registers.push_front(tempReg);
+#if defined(TARGET_IA32E)
+    case REG_RDX:
+        addTaintRegister(REG_RDX, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_EDX:
+        addTaintRegister(REG_EDX, REG_SIZE_4, bitmap, offset);
+    case REG_DX:
+        addTaintRegister(REG_DX, REG_SIZE_2, bitmap, offset);
+    case REG_DH:
+        addTaintRegister(REG_DH, REG_SIZE_1, bitmap, offset);
+    case REG_DL:
+        if(reg == REG_DH)
             break;
-
-        #if defined(TARGET_IA32E)
-        case REG_RDI: 
-            pushTaintReg(REG_RDI, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_EDI: 
-            pushTaintReg(REG_EDI, bitmap, offset, REG_SIZE_4);
-
-        case REG_DI:  
-            pushTaintReg(REG_DI, bitmap, offset, REG_SIZE_2);
-
-        #if defined(TARGET_IA32E)
-        case REG_DIL:  
-            pushTaintReg(REG_DIL, bitmap, offset, REG_SIZE_1);
-        #endif
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_RSI:
-            pushTaintReg(REG_RSI, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_ESI: 
-            pushTaintReg(REG_ESI, bitmap, offset, REG_SIZE_4);
-
-        case REG_SI:  
-            pushTaintReg(REG_SI, bitmap, offset, REG_SIZE_2);
-
-        #if defined(TARGET_IA32E)
-        case REG_SIL: 
-            pushTaintReg(REG_SIL, bitmap, offset, REG_SIZE_1);
-        #endif
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_R8:
-            pushTaintReg(REG_R8, bitmap, offset, REG_SIZE_8);
-
-        case REG_R8D: 
-            pushTaintReg(REG_R8D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R8W:  
-            pushTaintReg(REG_R8W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R8B: 
-            pushTaintReg(REG_R8B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R9:
-            pushTaintReg(REG_R9, bitmap, offset, REG_SIZE_8);
-
-        case REG_R9D: 
-            pushTaintReg(REG_R9D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R9W:  
-            pushTaintReg(REG_R9W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R9B: 
-            pushTaintReg(REG_R9B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R10:
-            pushTaintReg(REG_R10, bitmap, offset, REG_SIZE_8);
-
-        case REG_R10D: 
-            pushTaintReg(REG_R10D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R10W:  
-            pushTaintReg(REG_R10W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R10B: 
-            pushTaintReg(REG_R10B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R11:
-            pushTaintReg(REG_R11, bitmap, offset, REG_SIZE_8);
-
-        case REG_R11D: 
-            pushTaintReg(REG_R11D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R11W:  
-            pushTaintReg(REG_R11W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R11B: 
-            pushTaintReg(REG_R11B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R12:
-            pushTaintReg(REG_R12, bitmap, offset, REG_SIZE_8);
-
-        case REG_R12D: 
-            pushTaintReg(REG_R12D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R12W:  
-            pushTaintReg(REG_R12W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R12B: 
-            pushTaintReg(REG_R12B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R13:
-            pushTaintReg(REG_R13, bitmap, offset, REG_SIZE_8);
-
-        case REG_R13D: 
-            pushTaintReg(REG_R13D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R13W:  
-            pushTaintReg(REG_R13W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R13B: 
-            pushTaintReg(REG_R13B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R14:
-            pushTaintReg(REG_R14, bitmap, offset, REG_SIZE_8);
-
-        case REG_R14D: 
-            pushTaintReg(REG_R14D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R14W:  
-            pushTaintReg(REG_R14W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R14B: 
-            pushTaintReg(REG_R14B, bitmap, offset, REG_SIZE_1);
-
-            break;
-
-        case REG_R15:
-            pushTaintReg(REG_R15, bitmap, offset, REG_SIZE_8);
-
-        case REG_R15D: 
-            pushTaintReg(REG_R15D, bitmap, offset, REG_SIZE_4);
-
-        case REG_R15W:  
-            pushTaintReg(REG_R15W, bitmap, offset, REG_SIZE_2);
-
-        case REG_R15B: 
-            pushTaintReg(REG_R15B, bitmap, offset, REG_SIZE_1);
-
-            break;
-        #endif
-
-        case REG_YMM0: 
-            pushTaintReg(REG_YMM0, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM0: 
-            pushTaintReg(REG_XMM0, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM1: 
-            pushTaintReg(REG_YMM1, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM1: 
-            pushTaintReg(REG_XMM1, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM2: 
-            pushTaintReg(REG_YMM2, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM2: 
-            pushTaintReg(REG_XMM2, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM3: 
-            pushTaintReg(REG_YMM3, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM3: 
-            pushTaintReg(REG_XMM3, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM4: 
-            pushTaintReg(REG_YMM4, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM4: 
-            pushTaintReg(REG_XMM4, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM5: 
-            pushTaintReg(REG_YMM5, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM5: 
-            pushTaintReg(REG_XMM5, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM6: 
-            pushTaintReg(REG_YMM6, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM6: 
-            pushTaintReg(REG_XMM6, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM7: 
-            pushTaintReg(REG_YMM7, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM7: 
-            pushTaintReg(REG_XMM7, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_YMM8: 
-            pushTaintReg(REG_YMM8, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM8: 
-            pushTaintReg(REG_XMM8, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM9: 
-            pushTaintReg(REG_YMM9, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM9: 
-            pushTaintReg(REG_XMM9, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM10: 
-            pushTaintReg(REG_YMM10, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM10: 
-            pushTaintReg(REG_XMM10, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM11: 
-            pushTaintReg(REG_YMM11, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM11: 
-            pushTaintReg(REG_XMM11, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM12: 
-            pushTaintReg(REG_YMM12, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM12: 
-            pushTaintReg(REG_XMM12, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM13: 
-            pushTaintReg(REG_YMM13, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM13: 
-            pushTaintReg(REG_XMM13, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM14: 
-            pushTaintReg(REG_YMM14, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM14: 
-            pushTaintReg(REG_XMM14, bitmap, offset, REG_SIZE_16);
-
-            break;
-
-        case REG_YMM15: 
-            pushTaintReg(REG_YMM15, bitmap, offset, REG_SIZE_32);
-
-        case REG_XMM15: 
-            pushTaintReg(REG_XMM15, bitmap, offset, REG_SIZE_16);
-
-            break;
-        #endif
-
-        #if defined(TARGET_IA32E)
-        case REG_RBP:
-            pushTaintReg(REG_RBP, bitmap, offset, REG_SIZE_8);
-        #endif
-
-        case REG_EBP:
-            pushTaintReg(REG_EBP, bitmap, offset, REG_SIZE_4);
-
-            break;
-
-        default:
-          return false;
+        addTaintRegister(REG_DL, REG_SIZE_1, bitmap, offset);
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_RDI:
+        addTaintRegister(REG_RDI, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_EDI:
+        addTaintRegister(REG_EDI, REG_SIZE_4, bitmap, offset);
+    case REG_DI:
+        addTaintRegister(REG_DI, REG_SIZE_2, bitmap, offset);
+#if defined(TARGET_IA32E)
+    case REG_DIL:
+        addTaintRegister(REG_DIL, REG_SIZE_1, bitmap, offset);
+#endif
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_RSI:
+        addTaintRegister(REG_RSI, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_ESI:
+        addTaintRegister(REG_ESI, REG_SIZE_4, bitmap, offset);
+    case REG_SI:
+        addTaintRegister(REG_SI, REG_SIZE_2, bitmap, offset);
+#if defined(TARGET_IA32E)
+    case REG_SIL:
+        addTaintRegister(REG_SIL, REG_SIZE_1, bitmap, offset);
+#endif
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_R8:
+        addTaintRegister(REG_R8, REG_SIZE_8, bitmap, offset);
+    case REG_R8D:
+        addTaintRegister(REG_R8D, REG_SIZE_4, bitmap, offset);
+    case REG_R8W:
+        addTaintRegister(REG_R8W, REG_SIZE_2, bitmap, offset);
+    case REG_R8B:
+        addTaintRegister(REG_R8B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R9:
+        addTaintRegister(REG_R9, REG_SIZE_8, bitmap, offset);
+    case REG_R9D:
+        addTaintRegister(REG_R9D, REG_SIZE_4, bitmap, offset);
+    case REG_R9W:
+        addTaintRegister(REG_R9W, REG_SIZE_2, bitmap, offset);
+    case REG_R9B:
+        addTaintRegister(REG_R9B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R10:
+        addTaintRegister(REG_R10, REG_SIZE_8, bitmap, offset);
+    case REG_R10D:
+        addTaintRegister(REG_R10D, REG_SIZE_4, bitmap, offset);
+    case REG_R10W:
+        addTaintRegister(REG_R10W, REG_SIZE_2, bitmap, offset);
+    case REG_R10B:
+        addTaintRegister(REG_R10B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R11:
+        addTaintRegister(REG_R11, REG_SIZE_8, bitmap, offset);
+    case REG_R11D:
+        addTaintRegister(REG_R11D, REG_SIZE_4, bitmap, offset);
+    case REG_R11W:
+        addTaintRegister(REG_R11W, REG_SIZE_2, bitmap, offset);
+    case REG_R11B:
+        addTaintRegister(REG_R11B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R12:
+        addTaintRegister(REG_R12, REG_SIZE_8, bitmap, offset);
+    case REG_R12D:
+        addTaintRegister(REG_R12D, REG_SIZE_4, bitmap, offset);
+    case REG_R12W:
+        addTaintRegister(REG_R12W, REG_SIZE_2, bitmap, offset);
+    case REG_R12B:
+        addTaintRegister(REG_R12B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R13:
+        addTaintRegister(REG_R13, REG_SIZE_8, bitmap, offset);
+    case REG_R13D:
+        addTaintRegister(REG_R13D, REG_SIZE_4, bitmap, offset);
+    case REG_R13W:
+        addTaintRegister(REG_R13W, REG_SIZE_2, bitmap, offset);
+    case REG_R13B:
+        addTaintRegister(REG_R13B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R14:
+        addTaintRegister(REG_R14, REG_SIZE_8, bitmap, offset);
+    case REG_R14D:
+        addTaintRegister(REG_R14D, REG_SIZE_4, bitmap, offset);
+    case REG_R14W:
+        addTaintRegister(REG_R14W, REG_SIZE_2, bitmap, offset);
+    case REG_R14B:
+        addTaintRegister(REG_R14B, REG_SIZE_1, bitmap, offset);
+        break;
+
+    case REG_R15:
+        addTaintRegister(REG_R15, REG_SIZE_8, bitmap, offset);
+    case REG_R15D:
+        addTaintRegister(REG_R15D, REG_SIZE_4, bitmap, offset);
+    case REG_R15W:
+        addTaintRegister(REG_R15W, REG_SIZE_2, bitmap, offset);
+    case REG_R15B:
+        addTaintRegister(REG_R15B, REG_SIZE_1, bitmap, offset);
+        break;
+#endif // TARGET_IA32E
+
+    case REG_YMM0:
+        addTaintRegister(REG_YMM0, REG_SIZE_32, bitmap, offset);
+    case REG_XMM0:
+        addTaintRegister(REG_XMM0, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM1:
+        addTaintRegister(REG_YMM1, REG_SIZE_32, bitmap, offset);
+    case REG_XMM1:
+        addTaintRegister(REG_XMM1, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM2:
+        addTaintRegister(REG_YMM2, REG_SIZE_32, bitmap, offset);
+    case REG_XMM2:
+        addTaintRegister(REG_XMM2, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM3:
+        addTaintRegister(REG_YMM3, REG_SIZE_32, bitmap, offset);
+    case REG_XMM3:
+        addTaintRegister(REG_XMM3, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM4:
+        addTaintRegister(REG_YMM4, REG_SIZE_32, bitmap, offset);
+    case REG_XMM4:
+        addTaintRegister(REG_XMM4, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM5:
+        addTaintRegister(REG_YMM5, REG_SIZE_32, bitmap, offset);
+    case REG_XMM5:
+        addTaintRegister(REG_XMM5, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM6:
+        addTaintRegister(REG_YMM6, REG_SIZE_32, bitmap, offset);
+    case REG_XMM6:
+        addTaintRegister(REG_XMM6, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM7:
+        addTaintRegister(REG_YMM7, REG_SIZE_32, bitmap, offset);
+    case REG_XMM7:
+        addTaintRegister(REG_XMM7, REG_SIZE_16, bitmap, offset);
+
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_YMM8:
+        addTaintRegister(REG_YMM8, REG_SIZE_32, bitmap, offset);
+    case REG_XMM8:
+        addTaintRegister(REG_XMM8, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM9:
+        addTaintRegister(REG_YMM9, REG_SIZE_32, bitmap, offset);
+    case REG_XMM9:
+        addTaintRegister(REG_XMM9, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM10:
+        addTaintRegister(REG_YMM10, REG_SIZE_32, bitmap, offset);
+    case REG_XMM10:
+        addTaintRegister(REG_XMM10, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM11:
+        addTaintRegister(REG_YMM11, REG_SIZE_32, bitmap, offset);
+    case REG_XMM11:
+        addTaintRegister(REG_XMM11, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM12:
+        addTaintRegister(REG_YMM12, REG_SIZE_32, bitmap, offset);
+    case REG_XMM12:
+        addTaintRegister(REG_XMM12, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM13:
+        addTaintRegister(REG_YMM13, REG_SIZE_32, bitmap, offset);
+    case REG_XMM13:
+        addTaintRegister(REG_XMM13, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM14:
+        addTaintRegister(REG_YMM14, REG_SIZE_32, bitmap, offset);
+    case REG_XMM14:
+        addTaintRegister(REG_XMM14, REG_SIZE_16, bitmap, offset);
+        break;
+
+    case REG_YMM15:
+        addTaintRegister(REG_YMM15, REG_SIZE_32, bitmap, offset);
+    case REG_XMM15:
+        addTaintRegister(REG_XMM15, REG_SIZE_16, bitmap, offset);
+        break;
+#endif // TARGET_IA32E
+
+#if defined(TARGET_IA32E)
+    case REG_RBP:
+        addTaintRegister(REG_RBP, REG_SIZE_8, bitmap, offset);
+#endif
+    case REG_EBP:
+        addTaintRegister(REG_EBP, REG_SIZE_4, bitmap, offset);
+        break;
+
+    default:
+        return false;
     }
 
     return true;
 }
 
-bool removeRegTainted(REG reg){
-    Register* tempReg;
-
-    switch(reg){
-
-        #if defined(TARGET_IA32E)
-        case REG_RAX:
-            tempReg = getTaintRegPointer(REG_RAX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_EAX:  
-            tempReg = getTaintRegPointer(REG_EAX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_AX:   
-            tempReg = getTaintRegPointer(REG_AX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_AH:  
-            tempReg = getTaintRegPointer(REG_AH);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_AL:
-            if(reg == REG_AH) break;
-
-            tempReg = getTaintRegPointer(REG_AL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-            
+bool removeTaintRegister(REG reg)
+{
+    if (REGISTER_INVALID == reg)
+        return false;
+    Register* r;
+    switch (reg) {
+#if defined(TARGET_IA32E)
+    case REG_RAX:
+        r = getTaintRegister(REG_RAX);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_EAX:
+        r = getTaintRegister(REG_EAX);
+        g_registers.remove(r);
+        delete r;
+    case REG_AX:
+        r = getTaintRegister(REG_AX);
+        g_registers.remove(r);
+        delete r;
+    case REG_AH:
+        r = getTaintRegister(REG_AH);
+        g_registers.remove(r);
+        delete r;
+    case REG_AL:
+        if (reg == REG_AH)
             break;
+        r = getTaintRegister(REG_AL);
+        g_registers.remove(r);
+        delete r;
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RBX:
-            tempReg = getTaintRegPointer(REG_RBX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_EBX: 
-            tempReg = getTaintRegPointer(REG_EBX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_BX:  
-            tempReg = getTaintRegPointer(REG_BX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_BH:   
-            tempReg = getTaintRegPointer(REG_BH);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_BL: 
-            if(reg == REG_BH) break;
-
-            tempReg = getTaintRegPointer(REG_BL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
+#if defined(TARGET_IA32E)
+    case REG_RBX:
+        r = getTaintRegister(REG_RBX);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_EBX:
+        r = getTaintRegister(REG_EBX);
+        g_registers.remove(r);
+        delete r;
+    case REG_BX:
+        r = getTaintRegister(REG_BX);
+        g_registers.remove(r);
+        delete r;
+    case REG_BH:
+        r = getTaintRegister(REG_BH);
+        g_registers.remove(r);
+        delete r;
+    case REG_BL:
+        if (reg == REG_BH)
             break;
+        r = getTaintRegister(REG_BL);
+        g_registers.remove(r);
+        delete r;
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RCX: 
-            tempReg = getTaintRegPointer(REG_RCX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_ECX:  
-            tempReg = getTaintRegPointer(REG_ECX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_CX: 
-            tempReg = getTaintRegPointer(REG_CX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_CH:  
-            tempReg = getTaintRegPointer(REG_CH);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_CL:  
-            if(reg == REG_CH) break;
-            tempReg = getTaintRegPointer(REG_CL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-            
+#if defined(TARGET_IA32E)
+    case REG_RCX:
+        r = getTaintRegister(REG_RCX);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_ECX:
+        r = getTaintRegister(REG_ECX);
+        g_registers.remove(r);
+        delete r;
+    case REG_CX:
+        r = getTaintRegister(REG_CX);
+        g_registers.remove(r);
+        delete r;
+    case REG_CH:
+        r = getTaintRegister(REG_CH);
+        g_registers.remove(r);
+        delete r;
+    case REG_CL:
+        if (reg == REG_CH)
             break;
+        r = getTaintRegister(REG_CL);
+        g_registers.remove(r);
+        delete r;
+        break;
 
-        #if defined(TARGET_IA32E)
-        case REG_RDX: 
-            tempReg = getTaintRegPointer(REG_RDX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_EDX: 
-            tempReg = getTaintRegPointer(REG_EDX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_DX:  
-            tempReg = getTaintRegPointer(REG_DX);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_DH:   
-            tempReg = getTaintRegPointer(REG_DH);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_DL:   
-            if(reg == REG_DH) break;
-
-            tempReg = getTaintRegPointer(REG_DL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
+#if defined(TARGET_IA32E)
+    case REG_RDX:
+        r = getTaintRegister(REG_RDX);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_EDX:
+        r = getTaintRegister(REG_EDX);
+        g_registers.remove(r);
+        delete r;
+    case REG_DX:
+        r = getTaintRegister(REG_DX);
+        g_registers.remove(r);
+        delete r;
+    case REG_DH:
+        r = getTaintRegister(REG_DH);
+        g_registers.remove(r);
+        delete r;
+    case REG_DL:
+        if (reg == REG_DH)
             break;
-
-        #if defined(TARGET_IA32E)
-        case REG_RDI: 
-            tempReg = getTaintRegPointer(REG_RDI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_EDI:  
-            tempReg = getTaintRegPointer(REG_EDI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_DI:  
-            tempReg = getTaintRegPointer(REG_DI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        #if defined(TARGET_IA32E)
-        case REG_DIL: 
-            tempReg = getTaintRegPointer(REG_DIL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_RSI: 
-            tempReg = getTaintRegPointer(REG_RSI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_ESI: 
-            tempReg = getTaintRegPointer(REG_ESI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_SI:  
-            tempReg = getTaintRegPointer(REG_SI);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        #if defined(TARGET_IA32E)
-        case REG_SIL: 
-            tempReg = getTaintRegPointer(REG_SIL);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_R8: 
-            tempReg = getTaintRegPointer(REG_R8);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R8D: 
-            tempReg = getTaintRegPointer(REG_R8D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R8W:  
-            tempReg = getTaintRegPointer(REG_R8W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R8B: 
-            tempReg = getTaintRegPointer(REG_R8B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R9: 
-            tempReg = getTaintRegPointer(REG_R9);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R9D: 
-            tempReg = getTaintRegPointer(REG_R9D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R9W:  
-            tempReg = getTaintRegPointer(REG_R9W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R9B: 
-            tempReg = getTaintRegPointer(REG_R9B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R10: 
-            tempReg = getTaintRegPointer(REG_R10);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R10D: 
-            tempReg = getTaintRegPointer(REG_R10D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R10W:  
-            tempReg = getTaintRegPointer(REG_R10W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R10B: 
-            tempReg = getTaintRegPointer(REG_R10B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R11: 
-            tempReg = getTaintRegPointer(REG_R11);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R11D: 
-            tempReg = getTaintRegPointer(REG_R11D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R11W:  
-            tempReg = getTaintRegPointer(REG_R11W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R11B: 
-            tempReg = getTaintRegPointer(REG_R11B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R12: 
-            tempReg = getTaintRegPointer(REG_R12);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R12D: 
-            tempReg = getTaintRegPointer(REG_R12D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R12W:  
-            tempReg = getTaintRegPointer(REG_R12W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R12B: 
-            tempReg = getTaintRegPointer(REG_R12B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R13: 
-            tempReg = getTaintRegPointer(REG_R13);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R13D: 
-            tempReg = getTaintRegPointer(REG_R13D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R13W:  
-            tempReg = getTaintRegPointer(REG_R13W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R13B: 
-            tempReg = getTaintRegPointer(REG_R13B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R14: 
-            tempReg = getTaintRegPointer(REG_R14);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R14D: 
-            tempReg = getTaintRegPointer(REG_R14D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R14W:  
-            tempReg = getTaintRegPointer(REG_R14W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R14B: 
-            tempReg = getTaintRegPointer(REG_R14B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_R15: 
-            tempReg = getTaintRegPointer(REG_R15);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R15D: 
-            tempReg = getTaintRegPointer(REG_R15D);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R15W:  
-            tempReg = getTaintRegPointer(REG_R15W);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_R15B: 
-            tempReg = getTaintRegPointer(REG_R15B);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-        #endif
-
-        case REG_YMM0: 
-            tempReg = getTaintRegPointer(REG_YMM0);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM0: 
-            tempReg = getTaintRegPointer(REG_XMM0);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM1: 
-            tempReg = getTaintRegPointer(REG_YMM1);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM1: 
-            tempReg = getTaintRegPointer(REG_XMM1);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM2: 
-            tempReg = getTaintRegPointer(REG_YMM2);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM2: 
-            tempReg = getTaintRegPointer(REG_XMM2);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM3: 
-            tempReg = getTaintRegPointer(REG_YMM3);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM3: 
-            tempReg = getTaintRegPointer(REG_XMM3);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM4: 
-            tempReg = getTaintRegPointer(REG_YMM4);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM4: 
-            tempReg = getTaintRegPointer(REG_XMM4);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM5: 
-            tempReg = getTaintRegPointer(REG_YMM5);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM5: 
-            tempReg = getTaintRegPointer(REG_XMM5);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM6: 
-            tempReg = getTaintRegPointer(REG_YMM6);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM6: 
-            tempReg = getTaintRegPointer(REG_XMM6);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM7: 
-            tempReg = getTaintRegPointer(REG_YMM7);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM7: 
-            tempReg = getTaintRegPointer(REG_XMM7);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        #if defined(TARGET_IA32E)
-        case REG_YMM8: 
-            tempReg = getTaintRegPointer(REG_YMM8);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM8: 
-            tempReg = getTaintRegPointer(REG_XMM8);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM9: 
-            tempReg = getTaintRegPointer(REG_YMM9);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM9: 
-            tempReg = getTaintRegPointer(REG_XMM9);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM10: 
-            tempReg = getTaintRegPointer(REG_YMM10);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM10: 
-            tempReg = getTaintRegPointer(REG_XMM10);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM11: 
-            tempReg = getTaintRegPointer(REG_YMM11);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM11: 
-            tempReg = getTaintRegPointer(REG_XMM11);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM12: 
-            tempReg = getTaintRegPointer(REG_YMM12);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM12: 
-            tempReg = getTaintRegPointer(REG_XMM12);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM13: 
-            tempReg = getTaintRegPointer(REG_YMM13);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM13: 
-            tempReg = getTaintRegPointer(REG_XMM13);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM14: 
-            tempReg = getTaintRegPointer(REG_YMM14);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM14: 
-            tempReg = getTaintRegPointer(REG_XMM14);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        case REG_YMM15: 
-            tempReg = getTaintRegPointer(REG_YMM15);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-        case REG_XMM15: 
-            tempReg = getTaintRegPointer(REG_XMM15);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-        #endif
-
-        #if defined(TARGET_IA32E)
-        case REG_RBP:
-            tempReg = getTaintRegPointer(REG_RBP);
-            g_registers.remove(tempReg);
-            delete tempReg;
-        #endif
-
-        case REG_EBP:
-            tempReg = getTaintRegPointer(REG_EBP);
-            g_registers.remove(tempReg);
-            delete tempReg;
-
-            break;
-
-        default:
-          return false;
+        r = getTaintRegister(REG_DL);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_RDI:
+        r = getTaintRegister(REG_RDI);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_EDI:
+        r = getTaintRegister(REG_EDI);
+        g_registers.remove(r);
+        delete r;
+    case REG_DI:
+        r = getTaintRegister(REG_DI);
+        g_registers.remove(r);
+        delete r;
+#if defined(TARGET_IA32E)
+    case REG_DIL:
+        r = getTaintRegister(REG_DIL);
+        g_registers.remove(r);
+        delete r;
+#endif
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_RSI:
+        r = getTaintRegister(REG_RSI);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_ESI:
+        r = getTaintRegister(REG_ESI);
+        g_registers.remove(r);
+        delete r;
+    case REG_SI:
+        r = getTaintRegister(REG_SI);
+        g_registers.remove(r);
+        delete r;
+#if defined(TARGET_IA32E)
+    case REG_SIL:
+        r = getTaintRegister(REG_SIL);
+        g_registers.remove(r);
+        delete r;
+#endif
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_R8:
+        r = getTaintRegister(REG_R8);
+        g_registers.remove(r);
+        delete r;
+    case REG_R8D:
+        r = getTaintRegister(REG_R8D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R8W:
+        r = getTaintRegister(REG_R8W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R8B:
+        r = getTaintRegister(REG_R8B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R9:
+        r = getTaintRegister(REG_R9);
+        g_registers.remove(r);
+        delete r;
+    case REG_R9D:
+        r = getTaintRegister(REG_R9D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R9W:
+        r = getTaintRegister(REG_R9W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R9B:
+        r = getTaintRegister(REG_R9B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R10:
+        r = getTaintRegister(REG_R10);
+        g_registers.remove(r);
+        delete r;
+    case REG_R10D:
+        r = getTaintRegister(REG_R10D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R10W:
+        r = getTaintRegister(REG_R10W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R10B:
+        r = getTaintRegister(REG_R10B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R11:
+        r = getTaintRegister(REG_R11);
+        g_registers.remove(r);
+        delete r;
+    case REG_R11D:
+        r = getTaintRegister(REG_R11D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R11W:
+        r = getTaintRegister(REG_R11W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R11B:
+        r = getTaintRegister(REG_R11B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R12:
+        r = getTaintRegister(REG_R12);
+        g_registers.remove(r);
+        delete r;
+    case REG_R12D:
+        r = getTaintRegister(REG_R12D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R12W:
+        r = getTaintRegister(REG_R12W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R12B:
+        r = getTaintRegister(REG_R12B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R13:
+        r = getTaintRegister(REG_R13);
+        g_registers.remove(r);
+        delete r;
+    case REG_R13D:
+        r = getTaintRegister(REG_R13D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R13W:
+        r = getTaintRegister(REG_R13W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R13B:
+        r = getTaintRegister(REG_R13B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R14:
+        r = getTaintRegister(REG_R14);
+        g_registers.remove(r);
+        delete r;
+    case REG_R14D:
+        r = getTaintRegister(REG_R14D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R14W:
+        r = getTaintRegister(REG_R14W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R14B:
+        r = getTaintRegister(REG_R14B);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_R15:
+        r = getTaintRegister(REG_R15);
+        g_registers.remove(r);
+        delete r;
+    case REG_R15D:
+        r = getTaintRegister(REG_R15D);
+        g_registers.remove(r);
+        delete r;
+    case REG_R15W:
+        r = getTaintRegister(REG_R15W);
+        g_registers.remove(r);
+        delete r;
+    case REG_R15B:
+        r = getTaintRegister(REG_R15B);
+        g_registers.remove(r);
+        delete r;
+        break;
+#endif // TARGET_IA32E
+
+    case REG_YMM0:
+        r = getTaintRegister(REG_YMM0);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM0:
+        r = getTaintRegister(REG_XMM0);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM1:
+        r = getTaintRegister(REG_YMM1);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM1:
+        r = getTaintRegister(REG_XMM1);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM2:
+        r = getTaintRegister(REG_YMM2);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM2:
+        r = getTaintRegister(REG_XMM2);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM3:
+        r = getTaintRegister(REG_YMM3);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM3:
+        r = getTaintRegister(REG_XMM3);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM4:
+        r = getTaintRegister(REG_YMM4);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM4:
+        r = getTaintRegister(REG_XMM4);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM5:
+        r = getTaintRegister(REG_YMM5);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM5:
+        r = getTaintRegister(REG_XMM5);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM6:
+        r = getTaintRegister(REG_YMM6);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM6:
+        r = getTaintRegister(REG_XMM6);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM7:
+        r = getTaintRegister(REG_YMM7);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM7:
+        r = getTaintRegister(REG_XMM7);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+#if defined(TARGET_IA32E)
+    case REG_YMM8:
+        r = getTaintRegister(REG_YMM8);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM8:
+        r = getTaintRegister(REG_XMM8);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM9:
+        r = getTaintRegister(REG_YMM9);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM9:
+        r = getTaintRegister(REG_XMM9);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM10:
+        r = getTaintRegister(REG_YMM10);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM10:
+        r = getTaintRegister(REG_XMM10);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM11:
+        r = getTaintRegister(REG_YMM11);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM11:
+        r = getTaintRegister(REG_XMM11);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM12:
+        r = getTaintRegister(REG_YMM12);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM12:
+        r = getTaintRegister(REG_XMM12);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM13:
+        r = getTaintRegister(REG_YMM13);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM13:
+        r = getTaintRegister(REG_XMM13);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM14:
+        r = getTaintRegister(REG_YMM14);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM14:
+        r = getTaintRegister(REG_XMM14);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    case REG_YMM15:
+        r = getTaintRegister(REG_YMM15);
+        g_registers.remove(r);
+        delete r;
+    case REG_XMM15:
+        r = getTaintRegister(REG_XMM15);
+        g_registers.remove(r);
+        delete r;
+        break;
+#endif // TARGET_IA32E
+
+#if defined(TARGET_IA32E)
+    case REG_RBP:
+        r = getTaintRegister(REG_RBP);
+        g_registers.remove(r);
+        delete r;
+#endif
+    case REG_EBP:
+        r = getTaintRegister(REG_EBP);
+        g_registers.remove(r);
+        delete r;
+        break;
+
+    default:
+        return false;
     }
 
     return true;
