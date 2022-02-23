@@ -13,7 +13,7 @@ void initMemTaint(MEM_TAINT_MAP* map, ADDRINT addr, UINT32 size){
     }
 
     for(UINT64 i = 0; i < size; i++){
-        MEM_TAINT* tempMem;
+        Byte* tempMem;
 
         if((tempMem = getTaintMemPointer(addr + i))){
             map->bitmap |= (0x1 << i);
@@ -32,7 +32,7 @@ void initMemTaint(MEM_TAINT_MAP* map1, ADDRINT addr1, MEM_TAINT_MAP* map2, ADDRI
     }
 
     for(UINT64 i = 0; i < size*count; i++){
-        MEM_TAINT* tempMem;
+        Byte* tempMem;
 
         if((tempMem = getTaintMemPointer(addr1+i))){
             map1->bitmap |= (0x1 << i);
@@ -52,7 +52,7 @@ void traceUnsupport(ADDRINT insAddr, std::string insDis){
 
 VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, UINT32 readSize, ADDRINT memOp2, UINT32 writeSize)
 {
-    list<MEM_TAINT*>::iterator i;
+    list<Byte*>::iterator i;
     UINT64 readAddr = memOp1;
     UINT64 writeAddr = memOp2;
 
@@ -64,7 +64,7 @@ VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, U
         bool isReadMemTainted = checkAlreadyMemTainted(readAddr+i);
         bool isWriteMemTainted = checkAlreadyMemTainted(writeAddr+i);
 
-        MEM_TAINT* tempMem = getTaintMemPointer(readAddr + i);
+        Byte* tempMem = getTaintMemPointer(readAddr + i);
 
         // if read mem tainted -> taint write mem
         if(isReadMemTainted){
@@ -161,7 +161,7 @@ VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
         
         // mem tainted && reg offset not tainted -> taint reg offset
         if(checkAlreadyMemTainted(addr+i)){
-            MEM_TAINT* tempMem = getTaintMemPointer(addr + i);
+            Byte* tempMem = getTaintMemPointer(addr + i);
 
             bitmap = bitmap | (0x1 << i);
             offset[i] = tempMem->offset;
@@ -207,7 +207,7 @@ VOID taintMemMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT readAdd
         bool isReadMemTainted = checkAlreadyMemTainted(readAddr+i);
         bool isWriteMemTainted = checkAlreadyMemTainted(writeAddr+i);
 
-        MEM_TAINT* tempMem = getTaintMemPointer(readAddr + i);
+        Byte* tempMem = getTaintMemPointer(readAddr + i);
 
         // if read mem tainted -> taint write mem
         if(isReadMemTainted){
@@ -312,7 +312,7 @@ VOID taintLODS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp, UI
         
         // mem tainted && reg offset not tainted -> taint reg offset
         if(isMemTainted){
-            MEM_TAINT* tempMem = getTaintMemPointer(addr + i);
+            Byte* tempMem = getTaintMemPointer(addr + i);
 
             bitmap = bitmap | (0x1 << i);
             offset[i] = tempMem->offset;

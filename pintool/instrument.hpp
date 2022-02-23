@@ -22,26 +22,27 @@ struct Register {
     UINT64 offset[REGISTER_WIDTH];
 };
 
-struct MEM_TAINT {
-    UINT64 address;
-    UINT64 offset;
-};
-
 struct MEM_TAINT_MAP {
     UINT64 address;
     UINT64 bitmap;
     UINT64 offset[32];
 };
 
+struct Byte {
+    UINT64 address;
+    UINT64 offset;
+};
+
+
 struct MEM_TAINT_BASE {
     UINT64 base;
-    vector<MEM_TAINT*> vecAddressTainted;
+    vector<Byte*> vecAddressTainted;
 };
 
 bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset);
 bool checkAlreadyRegTainted(REG reg);
 
-MEM_TAINT* getTaintMemPointer(UINT64 address);
+Byte* getTaintMemPointer(UINT64 address);
 bool checkAlreadyMemTainted(UINT64 address);
 
 VOID removeMemTainted(UINT64 address);

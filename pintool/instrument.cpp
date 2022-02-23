@@ -12,7 +12,7 @@
 using namespace std;
 
 list<MEM_TAINT_BASE*> listBaseAddress;
-vector<MEM_TAINT*> addressTainted;
+vector<Byte*> addressTainted;
 
 list<Register*> regsTainted;
 
@@ -45,7 +45,7 @@ bool checkAlreadyRegTainted(REG reg)
     return false;
 }
 
-MEM_TAINT* getTaintMemPointer(UINT64 address){
+Byte* getTaintMemPointer(UINT64 address){
     list<MEM_TAINT_BASE*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
@@ -95,7 +95,7 @@ VOID removeMemTainted(UINT64 address, UINT64 size)
 
 VOID addMemTainted(UINT64 address, UINT64 offset)
 {
-    MEM_TAINT* mem = new MEM_TAINT;
+    Byte* mem = new Byte;
     list<MEM_TAINT_BASE*>::iterator itBase;
 
     mem->address = address;
