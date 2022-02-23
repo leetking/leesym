@@ -25,6 +25,7 @@ unsigned long long strToUllRev(string value, int size){
     string stringValue = value.substr(0, size*2);
 
     unsigned long long intValue = stoull(stringValue , NULL, 16);
+    // FIXME: maybe overflow
     reverse((char*)&intValue, ((char*)&intValue)+size);
     return intValue;
 }

@@ -26,7 +26,7 @@ Trace::Trace(int id, string line){
     getline(ss, insAddress, '.');
     
     this->insAddress = insAddress;
-    this->address = strToUll(insAddress.substr(2, sizeof(int)*2), sizeof(int));
+    this->address = strToUll(insAddress.substr(2, sizeof(uint64_t)*2), sizeof(uint64_t));
 
     getline(ss, insDis, '.');
 

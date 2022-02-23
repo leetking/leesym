@@ -15,7 +15,8 @@ class Field;
 class Trace{
 private:
 	string insDis, ins, type, strOffsets, insAddress;
-	int endian, id, address;
+	int endian, id;
+    uint64_t address;
 	vector<Operand*> operands;
 	vector<string> offsets;
 
