@@ -31,8 +31,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
     // On ia32 Linux, there are only 5 registers for passing system call arguments, 
     // but mmap needs 6. For mmap on ia32, the first argument to the system call 
     // is a pointer to an array of the 6 arguments
-    if (num == SYS_mmap)
-    {
+    if (num == SYS_mmap) {
         ADDRINT * mmapArgs = reinterpret_cast<ADDRINT *>(arg0);
         arg0 = mmapArgs[0];
         arg1 = mmapArgs[1];
@@ -43,12 +42,14 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
     }
 #endif
 
+    // read(fd, mem, size)
     if(num == __NR_read){
         output << "[READ FILE]\t";
         output << hex << "0x" << ip << ":\tfd: " << arg0 << endl;
 
         taintMemoryStart = static_cast<INT64>(arg1);
 
+        // 只能处理一个文件：而且只能是目标程序处理的文件
         if(arg0 == targetFileFd || arg0 == 0){
             isTargetFileRead = true;
             isTaintStart = true;
@@ -59,6 +60,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
 
         output << hex << "0x" << ip << ":\t" << (char*)arg0 << endl;
 
+        // 打开目标程序读取的文件
         if(strstr((char*)arg0, targetFileName.c_str()) != NULL){
             isTargetFileOpen = true;
             output << "\tOpen target file" << endl;
@@ -66,11 +68,12 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
             isTaintStart = true;
         }
 
-        if(strstr((char*)arg0, "libc.so") != NULL){
+        // 动态链接程序，首先会打开 libc.so 加载动态链接库
+        if(strstr((char*)arg0, "libc.so") != NULL) {
             isLibcSO = true;
         }
 
-    } else if(num == __NR_close){
+    } else if(num == __NR_close) {
         output << hex << "[CLOSE FILE]\t\tfd: " << arg0 << endl;
 
         if(arg0 == targetFileFd){
@@ -87,19 +90,22 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
             isLseekCalled = true;
         }
 
+    // TODO 140 是什么系统调用, llseek, 为何不写 __NR_llseek
+    // TODO 为何要直接写 __NR_lseek 而不是 SYS_lseek 呢
     } else if(num == 140){
         output << hex << "[LLSEEK FILE]\t\tfd: " << arg0 << " offseth: " << arg1 << " offsetl: " << arg2 << " result: " << arg3 <<" whence: " << arg4 << endl;
-        
-        if(arg0 == targetFileFd){
+
+        if(arg0 == targetFileFd) {
             llseekResult = (UINT64*)arg3;
             isLlseekCalled = true;
         }
 
+    // TODO mmap 和 mmap2 的区别
     } else if (num == __NR_mmap){
         output << hex << "[MMAP]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
     }
 
-    #if defined(TARGET_LINUX) && defined(TARGET_IA32) 
+#if defined(TARGET_LINUX) && defined(TARGET_IA32)
     else if (num == __NR_mmap2){
         output << hex << "[MMAP2]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " pgoffset: " << arg5 << endl;
         if(arg4 == targetFileFd && arg4 != 0xFFFFFFFF){
@@ -108,7 +114,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
             isTaintStart = true;
         }
     }
-    #endif
+#endif
 }
 
 VOID SysAfter(ADDRINT ret)
@@ -126,6 +132,7 @@ VOID SysAfter(ADDRINT ret)
         UINT64 size = ret;
 
         for (UINT64 i = 0; i < size; i++){
+            // 按字节标记内存被污染
             addMemTainted(taintMemoryStart + i, globalOffset);
 
             globalOffset++;
@@ -150,6 +157,7 @@ VOID SysAfter(ADDRINT ret)
         output << "[LLSEEK] result: " << *llseekResult << endl;
     }
 
+    // mmap2 内存映射方式读取
     if(isTargetFileMmap2){
         isTargetFileMmap2 = false;
         
@@ -183,7 +191,8 @@ VOID SyscallExit(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID
     SysAfter(PIN_GetSyscallReturn(ctxt, std));
 }
 
-void doStdin(){
+void doStdin()
+{
     targetFileFd = 0;
     globalOffset = 0;
 }

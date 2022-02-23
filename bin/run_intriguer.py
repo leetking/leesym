@@ -112,6 +112,7 @@ def main():
     intriguer_start = time.time()
     start_time = time.time() 
 
+    # pintool 插桩
     cmd = ''
     cmd += 'cat ' + args.input_file + ' | '
 
@@ -141,17 +142,15 @@ def main():
 
     start_time = time.time() 
 
+    # traceAnalyzer 求解
     cmd = ''
-
     if args.timeout != None:
         cmd += 'timeout -k 5 ' + str(int(args.timeout) * 70 / 90) + ' '
-
     cmd += os.path.join(INTRIGUER_ROOT, 'traceAnalyzer/traceAnalyzer') + ' '
     cmd += os.path.join(args.output_dir, 'trace.txt') + ' '
     cmd += args.input_file + ' '
     cmd += os.path.join(args.output_dir, 'field.out') + ' > '
     cmd += os.path.join(args.output_dir, 'field_log')
-
     print('[CMD]: ' + cmd)
     os.system(cmd)
 

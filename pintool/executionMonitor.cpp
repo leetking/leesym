@@ -65,6 +65,8 @@ VOID Fini(INT32 code, VOID *v)
 
 INT32 Usage()
 {
+    printf("pin -t pintool/obj-xxx/executionMonitor.so -i <input-file> "
+           "-o <output-file> -l <log-file> -- <cmd> [opts]\n");
     return -1;
 }
 
@@ -92,16 +94,19 @@ int main(int argc, char *argv[])
         doStdin();
     }
 
+    // Intel 汇编语法
     PIN_SetSyntaxIntel();
-    PIN_AddSyscallEntryFunction(SyscallEntry, 0);
-    PIN_AddSyscallExitFunction(SyscallExit, 0);
-    
-    INS_AddInstrumentFunction(Instruction, 0);
+    // Syscall入口和出口：建立输入和内存/寄存器的关联
+    PIN_AddSyscallEntryFunction(SyscallEntry, nullptr);
+    PIN_AddSyscallExitFunction(SyscallExit, nullptr);
 
-    PIN_AddFiniFunction(Fini, 0);
+    // 核心插桩，指令级别插桩
+    INS_AddInstrumentFunction(Instruction, nullptr);
+
+    PIN_AddFiniFunction(Fini, nullptr);
 
     // Never returns
     PIN_StartProgram();
-    
+
     return 0;
 }

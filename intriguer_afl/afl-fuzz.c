@@ -284,7 +284,8 @@ static s8  interesting_8[]  = { INTERESTING_8 };
 static s16 interesting_16[] = { INTERESTING_8, INTERESTING_16 };
 static s32 interesting_32[] = { INTERESTING_8, INTERESTING_16, INTERESTING_32 };
 
-struct st_field{
+// intriguer 符号执行反馈的信息
+struct st_field {
   u32 start;
   u32 size;
   u32 type;

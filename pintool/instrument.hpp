@@ -10,13 +10,14 @@
 #define REG_SIZE_16 16
 #define REG_SIZE_32 32
 
-struct REG_TAINT{
+// 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
+struct REG_TAINT {
     REG reg;
     UINT64 bitmap;
     UINT64 offset[32];
 };
 
-struct MEM_TAINT{
+struct MEM_TAINT {
     UINT64 address;
     UINT64 offset;
 };

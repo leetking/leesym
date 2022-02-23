@@ -45,4 +45,4 @@ INT32 Usage();
 
 int main(int argc, char *argv[]);
 
-#endif
+#endif /* INTRIGUER_EXECUTION_MONITOR_HPP_ */

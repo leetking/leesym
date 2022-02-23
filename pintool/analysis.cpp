@@ -4,6 +4,7 @@
 #include "instruction.hpp"
 #include "syscall.hpp"
 
+// v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
 {
     if(!isTaintStart) return;
@@ -12,27 +13,35 @@ VOID Instruction(INS ins, VOID *v)
 
     switch (ins_indx){
 
-    case XED_ICLASS_MOVSQ:
-    case XED_ICLASS_MOVSD:
-    case XED_ICLASS_MOVSW:
-    case XED_ICLASS_MOVSB:
+    // 复制 DS:SI -> ES:DI
+    case XED_ICLASS_MOVSQ:  // 8B
+    case XED_ICLASS_MOVSD:  // 4B, == movsl
+    case XED_ICLASS_MOVSW:  // 2B
+    case XED_ICLASS_MOVSB:  // 1B
         INS_InsertCall(
             ins, IPOINT_BEFORE, (AFUNPTR)taintMOVS,
+            // IARG_XXX 这是 funptr 参数的类型，INS_Address(ins) 为参数值
             IARG_ADDRINT, INS_Address(ins),
+            // 指令的反汇编字符串
             IARG_PTR, new string(INS_Disassemble(ins)),
+            // 指令的操作数个数
             IARG_UINT32, INS_OperandCount(ins),
+            // 指令操作读内存的地址
             IARG_MEMORYREAD_EA,
+            // 这条指令读取内存的大小, 1, 2, 4 or 8 B, 和指令一致
             IARG_UINT32, INS_MemoryReadSize(ins),
+            // 指令操作写内存的地址
             IARG_MEMORYWRITE_EA,
+            // 写内存大小，和读大小一样，只能是 1, 2, 4 or 8 B
             IARG_UINT32, INS_MemoryWriteSize(ins),
             IARG_END);
         break;
 
+    // 存储 RAX, EAX, AX, AL 的值到 [edi] 所指的内存
     case XED_ICLASS_STOSQ:
     case XED_ICLASS_STOSD:
     case XED_ICLASS_STOSW:
     case XED_ICLASS_STOSB:
-
         INS_InsertCall(
             ins, IPOINT_BEFORE, (AFUNPTR)taintSTOS,
             IARG_ADDRINT, INS_Address(ins),
@@ -41,14 +50,13 @@ VOID Instruction(INS ins, VOID *v)
             IARG_MEMORYWRITE_EA,
             IARG_UINT32, INS_MemoryWriteSize(ins),
             IARG_END);
-
         break;
 
+    // 和 STOS 相反
     case XED_ICLASS_LODSQ:
     case XED_ICLASS_LODSD:
     case XED_ICLASS_LODSW:
     case XED_ICLASS_LODSB:
-
         INS_InsertCall(
             ins, IPOINT_BEFORE, (AFUNPTR)taintLODS,
             IARG_ADDRINT, INS_Address(ins),
@@ -57,14 +65,12 @@ VOID Instruction(INS ins, VOID *v)
             IARG_MEMORYREAD_EA,
             IARG_UINT32, INS_MemoryReadSize(ins),
             IARG_END);
-
         break;
 
     case XED_ICLASS_CMPSQ:
     case XED_ICLASS_CMPSD:
     case XED_ICLASS_CMPSW:
     case XED_ICLASS_CMPSB:
-
         if(INS_RepPrefix(ins)){
             INS_InsertCall(
                 ins, IPOINT_BEFORE, (AFUNPTR)traceCMPS,
@@ -89,9 +95,8 @@ VOID Instruction(INS ins, VOID *v)
                 IARG_MEMORYREAD2_EA,
                 IARG_UINT32, INS_MemoryReadSize(ins),
                 IARG_UINT32, 1,
-                IARG_END);        
+                IARG_END);
         }
-
         break;
 
     /* TODO */
