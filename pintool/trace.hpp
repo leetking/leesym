@@ -8,7 +8,7 @@
 #include "instrument.hpp"
 
 void printTraceLogReg(Register* reg, UINT64 size);
-void printTraceLogMem(MEM_TAINT_MAP* map, UINT64 size);
+void printTraceLogMem(MemBlock* map, UINT64 size);
 //print value
 void printTraceLogVal(UINT8* val, UINT64 size);
 //trace reg
@@ -20,20 +20,20 @@ void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, Re
 //trace reg reg imm
 void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, Register* reg2, UINT64 val2, UINT64 imm, UINT64 size);
 //trace reg mem imm
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, MEM_TAINT_MAP* map, UINT8* val2, UINT64 imm, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, MemBlock* map, UINT8* val2, UINT64 imm, UINT64 size);
 //trace reg mem
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, MemBlock* map, UINT8* val2, UINT64 size);
 //trace mem reg
-void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val1, Register* reg, UINT64 val2, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val1, Register* reg, UINT64 val2, UINT64 size);
 //trace mem mem
-void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map1, UINT8* val1, MEM_TAINT_MAP* map2, UINT8* val2, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map1, UINT8* val1, MemBlock* map2, UINT8* val2, UINT64 size);
 //trace mem
-void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val,UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val,UINT64 size);
 //trace mem imm
-void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val1, UINT64 val2, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val1, UINT64 val2, UINT64 size);
 //trace reg reg SIMD
 void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, Register* reg2, UINT8* val2, UINT64 size);
 //trace reg mem SIMD
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size);
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MemBlock* map, UINT8* val2, UINT64 size);
 
 #endif

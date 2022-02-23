@@ -22,7 +22,7 @@ struct Register {
     UINT64 offset[REGISTER_WIDTH];
 };
 
-struct MEM_TAINT_MAP {
+struct MemBlock {
     UINT64 address;
     UINT64 bitmap;
     UINT64 offset[32];

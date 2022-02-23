@@ -5,7 +5,7 @@
 #include "instrument.hpp"
 #include "trace.hpp"
 
-void initMemTaint(MEM_TAINT_MAP* map, ADDRINT addr, UINT32 size){
+void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size){
     map->bitmap = 0;
 
     for(UINT64 i = 0; i < 32; i++){
@@ -22,7 +22,7 @@ void initMemTaint(MEM_TAINT_MAP* map, ADDRINT addr, UINT32 size){
     }
 }
 
-void initMemTaint(MEM_TAINT_MAP* map1, ADDRINT addr1, MEM_TAINT_MAP* map2, ADDRINT addr2, UINT32 size, UINT32 count){
+void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, UINT32 size, UINT32 count){
     map1->bitmap = 0;
     map2->bitmap = 0;
 
@@ -183,7 +183,7 @@ VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
 
 VOID taintMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
     
@@ -413,7 +413,7 @@ VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
 VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
     
     initMemTaint(&map, addr, size);
 
@@ -434,7 +434,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
         val[i] = '\0';
     }
 
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
     
@@ -449,7 +449,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
 
 VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -464,7 +464,7 @@ VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
 VOID traceCMPMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -478,8 +478,8 @@ VOID traceCMPS(ADDRINT insAddr, string insDis, UINT32 opCount, BOOL isFirst , AD
         return ;
     }
     
-    MEM_TAINT_MAP map1;
-    MEM_TAINT_MAP map2;
+    MemBlock map1;
+    MemBlock map2;
 
     initMemTaint(&map1, addr1, &map2, addr2, size, count);
     
@@ -594,7 +594,7 @@ VOID traceArithReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
 
 VOID traceArithMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -610,7 +610,7 @@ VOID traceArithMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT ad
 
 VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -638,7 +638,7 @@ VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
 
 VOID traceArithMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
     
@@ -648,7 +648,7 @@ VOID traceArithMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT ad
 
 VOID traceArithMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
     
@@ -691,7 +691,7 @@ VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
 VOID traceANDMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -747,7 +747,7 @@ VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
 
 VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
     
     initMemTaint(&map, addr, size);
 
@@ -833,7 +833,7 @@ VOID traceSHLRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
 VOID traceSHLMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -868,7 +868,7 @@ VOID traceSHLMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
 VOID traceSHLMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -960,7 +960,7 @@ VOID traceSHRRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
 VOID traceSHRMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -995,7 +995,7 @@ VOID traceSHRMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
 VOID traceSHRMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -1047,7 +1047,7 @@ VOID traceMULRegRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1,
 
 VOID traceMULRegMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
     
     initMemTaint(&map, addr, size);
 
@@ -1086,7 +1086,7 @@ VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, A
 
 VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -1109,7 +1109,7 @@ VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT add
 
 VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
 {
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
@@ -1221,7 +1221,7 @@ VOID traceCMPXCHGMemReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opC
 
     Register* tempReg = getTaintRegPointer(reg1);
 
-    MEM_TAINT_MAP map;
+    MemBlock map;
 
     initMemTaint(&map, addr, size);
 
