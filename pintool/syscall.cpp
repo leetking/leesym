@@ -133,7 +133,7 @@ VOID SysAfter(ADDRINT ret)
 
         for (UINT64 i = 0; i < size; i++){
             // 按字节标记内存被污染
-            addMemTainted(taintMemoryStart + i, globalOffset);
+            addTaintByte(taintMemoryStart + i, globalOffset);
 
             globalOffset++;
         }
@@ -165,7 +165,7 @@ VOID SysAfter(ADDRINT ret)
             UINT64 mmapResult = ret;
 
             for (UINT64 i = 0; i < mmapSize; i++){
-                addMemTainted(mmapResult + i, i);
+                addTaintByte(mmapResult + i, i);
             }
 
             output << "[TAINT]\t\t\t0x" << mmapSize << " bytes tainted from ";

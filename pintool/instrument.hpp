@@ -32,9 +32,21 @@ struct MemBlock {
     UINT64 offset[32];
 };
 
+enum {
+    INVALID_ADDRESS = (UINT64)-1,
+    INVALID_OFFSET = (UINT64)-1,
+};
 struct Byte {
     UINT64 address;
     UINT64 offset;
+
+    Byte()
+        : Byte(INVALID_ADDRESS, INVALID_OFFSET) {
+    }
+
+    Byte(UINT64 addr, UINT64 off)
+        : address(addr), offset(off) {
+    }
 };
 
 enum {
@@ -47,19 +59,31 @@ enum {
 #define page_addr(addr) ((addr) & (PIN_PAGE_SIZE_POW2-1))
 struct Page {
     UINT64 base;
-    vector<Byte*> vecAddressTainted;
+    vector<Byte*> bytes;
+
+    Page(UINT64 b)
+        : Page(b, nullptr) {
+    }
+
+    Page(UINT64 b, Byte *byte)
+        : base(b), bytes(PIN_PAGE_SIZE_POW2) {
+            if (byte)
+                bytes[page_addr(byte->address)] = byte;
+    }
+
+    // TODO Add deconstructor for Page
 };
 
 bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset);
 bool checkAlreadyRegTainted(REG reg);
 
-Byte* getTaintMemPointer(UINT64 address);
-bool checkAlreadyMemTainted(UINT64 address);
+Byte* getTaintByte(UINT64 address);
+bool isByteTainted(UINT64 address);
 
-VOID removeMemTainted(UINT64 address);
-VOID removeMemTainted(UINT64 address, UINT64 size);
-VOID addMemTainted(UINT64 address, UINT64 offset);
-VOID addMemTainted(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]);
+void removeTaintByte(UINT64 address);
+void removeTaintBlock(UINT64 address, UINT64 size);
+void addTaintByte(UINT64 address, UINT64 offset);
+void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]);
 
 Register* getTaintRegPointer(REG reg);
 void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size);

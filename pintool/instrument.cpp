@@ -18,6 +18,84 @@ list<Register*> g_registers;
 
 vector<Byte*> addressTainted;
 
+Byte* getTaintByte(UINT64 addr) {
+    for (auto page : g_pages) {
+        if (page->base == page_base(addr))
+            return page->bytes[page_addr(addr)];
+    }
+
+    return nullptr;
+}
+
+inline
+bool isByteTainted(UINT64 addr) {
+    return getTaintByte(addr);
+}
+
+void removeTaintByte(UINT64 addr)
+{
+    for (auto page : g_pages) {
+        if (page->base == page_base(addr)) {
+            delete page->bytes[page_addr(addr)];
+            page->bytes[page_addr(addr)] = nullptr;
+        }
+    }
+}
+
+void removeTaintBlock(UINT64 addr, UINT64 size)
+{
+    for(UINT64 i = 0; i < size; i++)
+        removeTaintByte(addr+i);
+}
+
+void addTaintByte(UINT64 addr, UINT64 offset)
+{
+    if (offset == INVALID_OFFSET)
+        return;
+
+    Byte* byte = new Byte(addr, offset);
+
+    for (auto page : g_pages) {
+        if (page->base == page_base(addr)) {
+            delete page->bytes[page_addr(addr)];
+            page->bytes[page_addr(addr)] = byte;
+            return;
+        }
+    }
+
+    // new page
+    Page *page = new Page(page_base(addr), byte);
+    g_pages.push_front(page);
+}
+
+void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
+    // assert(size is 1, 2, 4, 8, 16 etc)
+    for (UINT64 i = 0; i < size; i++) {
+
+        //taint mem if reg offset tainted
+        if (get_bitmap(bitmap, i)) {
+            addTaintByte(address+i, offset[i]);
+
+        //remove mem taint if reg offset is not taint
+        } else {
+            removeTaintByte(address+i);
+        }
+    }
+}
+
+
+Register* getTaintRegPointer(REG reg){
+    list<Register*>::iterator i;
+
+    for(i = g_registers.begin(); i != g_registers.end(); i++){
+        if((*i)->reg == reg){
+            return *i;
+        }
+    }
+
+    return NULL;
+}
+
 bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
     list<Register*>::iterator i;
 
@@ -25,7 +103,7 @@ bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
         if((*i)->reg == reg){
             UINT64 bitmap = (*i)->bitmap;
 
-            if((bitmap & (0x1 << offset)) != 0){
+            if (get_bitmap(bitmap, offset)) {
                 return true;
             }
         }
@@ -47,121 +125,6 @@ bool checkAlreadyRegTainted(REG reg)
     return false;
 }
 
-Byte* getTaintMemPointer(UINT64 address){
-    list<Page*>::iterator itBase;
-
-    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
-        if ((*itBase)->base == page_base(address)) {
-           return (*itBase)->vecAddressTainted[page_addr(address)];
-        }
-    }
-
-    return NULL;
-}
-
-bool checkAlreadyMemTainted(UINT64 address){
-    list<Page*>::iterator itBase;
-
-    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
-        if ((*itBase)->base == page_base(address)) {
-            if((*itBase)->vecAddressTainted[page_addr(address)] != NULL)
-                return true;
-            else
-                return false;
-        }
-    }
-
-    return false;
-}
-
-VOID removeMemTainted(UINT64 address)
-{
-    list<Page*>::iterator itBase;
-
-    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
-        if ((*itBase)->base == page_base(address)) {
-           if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
-                delete (*itBase)->vecAddressTainted[page_addr(address)];
-                (*itBase)->vecAddressTainted[page_addr(address)] = NULL;
-            }
-        }
-    }
-}
-
-VOID removeMemTainted(UINT64 address, UINT64 size)
-{
-    for(UINT64 i = 0; i < size; i++){
-        removeMemTainted(address+i);
-    }
-}
-
-VOID addMemTainted(UINT64 address, UINT64 offset)
-{
-    Byte* mem = new Byte;
-    list<Page*>::iterator itBase;
-
-    mem->address = address;
-    mem->offset = offset;
-
-    if((signed)mem->offset != -1){
-        for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
-            if ((*itBase)->base == page_base(address)) {
-                if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
-                    delete (*itBase)->vecAddressTainted[page_addr(address)];
-                    (*itBase)->vecAddressTainted[page_addr(address)] = NULL;
-                }
-                (*itBase)->vecAddressTainted[page_addr(address)] = mem;
-                break;
-            }
-        }
-
-        if(itBase == g_pages.end()){
-            Page* mem_base = new Page;
-
-            mem_base->base = page_base(address);
-
-            mem_base->vecAddressTainted.resize(PIN_PAGE_SIZE_POW2);
-
-            mem_base->vecAddressTainted[page_addr(address)] = mem;
-
-            g_pages.push_front(mem_base);
-        }
-    }
-}
-
-VOID addMemTainted(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
-    for(UINT64 i = 0; i < size; i++){
-
-        //taint mem if reg offset tainted
-        if((bitmap & (0x1 << i))){
-
-            if(checkAlreadyMemTainted(address+i)){
-                removeMemTainted(address+i);
-            }
-
-            addMemTainted(address+i, offset[i]);
-        }
-        //remove mem taint if reg offset is not taint
-        else{
-            if(checkAlreadyMemTainted(address+i)){
-                removeMemTainted(address+i);
-            }
-        }
-    }
-}
-
-Register* getTaintRegPointer(REG reg){
-    list<Register*>::iterator i;
-
-    for(i = g_registers.begin(); i != g_registers.end(); i++){
-        if((*i)->reg == reg){
-            return *i;
-        }
-    }
-
-    return NULL;
-}
-
 void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size){
     Register* tempReg = new Register;
 
@@ -169,7 +132,7 @@ void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size){
     tempReg->bitmap = bitmap & ((0x1 << size) - 1);
 
     for(UINT64 i = 0; i < size; i++){
-        if((tempReg->bitmap & (0x1 << i)) != 0)
+        if (get_bitmap(tempReg->bitmap, i))
             tempReg->offset[i] = offset[i];
         else
             tempReg->offset[i] = -1;
