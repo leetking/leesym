@@ -5,11 +5,10 @@ ofstream trace;
 void printTraceLogReg(Register* reg, UINT64 size){
     trace << "{";
 
-    if(reg != NULL){
-        for(UINT64 i=0; i < size; i++){
-            if((reg->bitmap & (0x1 << i)) != 0)
+    if (reg) {
+        for (UINT64 i = 0; i < size; i++) {
+            if (get_bitmap(reg->tainted, i))
                 trace << "0x" << reg->offset[i];
-
             trace << ",";
         }
     }
@@ -17,14 +16,13 @@ void printTraceLogReg(Register* reg, UINT64 size){
     trace << "}";
 }
 
-void printTraceLogMem(MemBlock* map, UINT64 size){
+void printTraceLogMem(MemBlock* mem, UINT64 size){
     trace << "{";
 
-    if(map != NULL){
-        for(UINT64 i=0; i < size; i++){
-            if((map->bitmap & (0x1 << i)) != 0)
-                trace << "0x" << map->offset[i];
-
+    if (mem) {
+        for(UINT64 i = 0; i < size; i++) {
+            if (get_bitmap(mem->tainted, i))
+                trace << "0x" << mem->offset[i];
             trace << ",";
         }
     }
@@ -34,8 +32,8 @@ void printTraceLogMem(MemBlock* map, UINT64 size){
 
 //print value
 void printTraceLogVal(UINT8* val, UINT64 size){
-    for(UINT64 c=0; c < size; c++){
-        trace << setw(2) << setfill('0') << hex << int(*(val+c));
+    for(UINT64 c = 0; c < size; c++) {
+        trace << setw(2) << setfill('0') << hex << int(val[c]);
     }
 }
 

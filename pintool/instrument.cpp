@@ -101,7 +101,7 @@ Register* getTaintRegister(REG reg)
 bool isRegisterOffsetTainted(REG reg, UINT8 offset)
 {
     Register const* registor = getTaintRegister(reg);
-    return registor && get_bitmap(registor->bitmap, offset);
+    return registor && get_bitmap(registor->tainted, offset);
 }
 
 bool isRegisterTainted(REG reg)

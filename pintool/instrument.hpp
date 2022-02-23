@@ -30,7 +30,8 @@ enum {
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
     REG reg;
-    UINT64 bitmap;
+    UINT64 tainted;
+    UINT64 direct_bits;     // 是否是直接来自输入
     UINT64 offset[REGISTER_WIDTH];
 
     Register():
@@ -38,7 +39,7 @@ struct Register {
     }
 
     Register(REG r, UINT64 bits, UINT64 offs[])
-        : reg(r), bitmap(bits) {
+        : reg(r), tainted(bits), direct_bits(~(UINT64)0x0) {
         for (UINT64 i = 0; i < REGISTER_WIDTH; ++i)
             offset[i] = INVALID_OFFSET;
         if (offs) {
@@ -52,13 +53,14 @@ struct Register {
 
 struct MemBlock {
     UINT64 address;
-    UINT64 bitmap;
+    UINT64 tainted;
     UINT64 offset[32];
 };
 
 struct Byte {
     UINT64 address;
     UINT64 offset;
+    bool direct;    // 字节是否直接来自输入
 
     Byte()
         : Byte(INVALID_ADDRESS, INVALID_OFFSET) {

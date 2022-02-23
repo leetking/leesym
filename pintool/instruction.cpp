@@ -6,7 +6,7 @@
 #include "trace.hpp"
 
 void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size){
-    map->bitmap = 0;
+    map->tainted = 0;
 
     for(UINT64 i = 0; i < 32; i++){
         map->offset[i] = -1;
@@ -16,15 +16,15 @@ void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size){
         Byte* tempMem;
 
         if((tempMem = getTaintByte(addr + i))){
-            set_bitmap(map->bitmap, i);
+            set_bitmap(map->tainted, i);
             map->offset[i] = tempMem->offset;
         }
     }
 }
 
 void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, UINT32 size, UINT32 count){
-    map1->bitmap = 0;
-    map2->bitmap = 0;
+    map1->tainted = 0;
+    map2->tainted = 0;
 
     for(UINT64 i = 0; i < 32; i++){
         map1->offset[i] = -1;
@@ -35,12 +35,12 @@ void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, 
         Byte* tempMem;
 
         if((tempMem = getTaintByte(addr1+i))){
-            set_bitmap(map1->bitmap, i);
+            set_bitmap(map1->tainted, i);
             map1->offset[i] = tempMem->offset;
         }
 
         if((tempMem = getTaintByte(addr2+i))){
-            set_bitmap(map2->bitmap, i);
+            set_bitmap(map2->tainted, i);
             map2->offset[i] = tempMem->offset;
         }    
     }
@@ -85,7 +85,7 @@ void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, REG r
     if(isRegisterTainted(reg1)){
         Register* tempReg1 = getTaintRegister(reg1);
 
-        taintReg(reg2, tempReg1->bitmap, tempReg1->offset);
+        taintReg(reg2, tempReg1->tainted, tempReg1->offset);
         
         // printTraceLog(insAddr, insDis, tempReg1, val, size);
     } 
@@ -121,7 +121,7 @@ VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
 
         for(UINT64 i = 0; i < size; i++){
             //taint mem if reg offset tainted
-            if (get_bitmap(tempReg->bitmap, i)) {
+            if (get_bitmap(tempReg->tainted, i)) {
                 if(isByteTainted(addr+i)){
                     removeTaintByte(addr+i);
                 }
@@ -338,13 +338,13 @@ VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
         if(isRegisterTainted(reg2)){
             Register* tempReg2 = getTaintRegister(reg2);
 
-            if(tempReg->bitmap != 0 || tempReg2->bitmap != 0){
+            if(tempReg->tainted != 0 || tempReg2->tainted != 0){
                 printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
             }
 
         // reg1 tainted
         } else {
-            if(tempReg->bitmap != 0){
+            if(tempReg->tainted != 0){
                 printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
             }
         }
@@ -353,7 +353,7 @@ VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     else if(isRegisterTainted(reg2)){
         Register* tempReg = getTaintRegister(reg2);
 
-        if(tempReg->bitmap != 0){
+        if(tempReg->tainted != 0){
             printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, size);
         }
     }
@@ -379,12 +379,12 @@ VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
         if(isRegisterTainted(reg2)){
             Register* tempReg2 = getTaintRegister(reg2);
 
-            if(tempReg->bitmap != 0 || tempReg2->bitmap != 0){
+            if(tempReg->tainted != 0 || tempReg2->tainted != 0){
                 printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, REG_Size(reg1));
             }
         // reg1 tainted
         } else {
-            if(tempReg->bitmap != 0){
+            if(tempReg->tainted != 0){
                 printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, REG_Size(reg1));
             }
         }
@@ -393,7 +393,7 @@ VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     else if(isRegisterTainted(reg2)){
         Register* tempReg = getTaintRegister(reg2);
 
-        if(tempReg->bitmap != 0){
+        if(tempReg->tainted != 0){
             printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, REG_Size(reg1));
         }
     }
@@ -404,7 +404,7 @@ VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0){
+        if(tempReg->tainted != 0){
             printTraceLog(insAddr, insDis, tempReg, val, imm, size);
         }
     } 
@@ -420,7 +420,7 @@ VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
         Register* tempReg = getTaintRegister(reg1);
 
         printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*) addr, size);
-    } else if(map.bitmap != 0){
+    } else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*) addr, size);
     }
 }
@@ -441,7 +441,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
         Register* tempReg = getTaintRegister(reg1);
 
         printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*) addr, size);
-    } else if(map.bitmap != 0){
+    } else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*) addr, size);
     }
 }
@@ -456,7 +456,7 @@ VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
         Register* tempReg = getTaintRegister(reg1);
 
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
-    } else if(map.bitmap != 0){
+    } else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, (Register*) NULL, val, size);
     }
 }
@@ -467,7 +467,7 @@ VOID traceCMPMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0)
+    if(map.tainted != 0)
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
 }
 
@@ -482,7 +482,7 @@ VOID traceCMPS(ADDRINT insAddr, string insDis, UINT32 opCount, BOOL isFirst , AD
 
     initMemTaint(&map1, addr1, &map2, addr2, size, count);
     
-    if(map1.bitmap != 0 || map2.bitmap != 0){
+    if(map1.tainted != 0 || map2.tainted != 0){
         printTraceLog(insAddr, insDis, &map1, (UINT8*)addr1, &map2, (UINT8*)addr2, size*count);
     }
 }
@@ -502,20 +502,20 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
         if(isRegisterTainted(reg2)){
             Register* tempReg2 = getTaintRegister(reg2);
 
-            if(tempReg1->bitmap != 0 || tempReg2 != 0)
+            if(tempReg1->tainted != 0 || tempReg2 != 0)
                 printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
             for(UINT i=0; i < size; i++){
-                if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
+                if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
                     tempReg1->offset[i] = tempReg2->offset[i];
                 }
             }
 
-            tempReg1->bitmap |= tempReg2->bitmap;
+            tempReg1->tainted |= tempReg2->tainted;
 
         // reg1 tainted
         } else {
-            if(tempReg1->bitmap != 0)
+            if(tempReg1->tainted != 0)
                 printTraceLog(insAddr, insDis, tempReg1, val1, (Register*) NULL, val2, size);
         }
     }
@@ -530,12 +530,12 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
         printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
         for(UINT i=0; i < size; i++){
-            if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
+            if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
                 tempReg1->offset[i] = tempReg2->offset[i];
             }
         }
 
-        tempReg1->bitmap |= tempReg2->bitmap;
+        tempReg1->tainted |= tempReg2->tainted;
     }
 }
 
@@ -552,13 +552,13 @@ VOID traceXORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
         else if(isRegisterTainted(reg2)){
             Register* tempReg2 = getTaintRegister(reg2);
 
-            if(tempReg->bitmap != 0 || tempReg2 != 0)
+            if(tempReg->tainted != 0 || tempReg2 != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
         
         } 
         // reg1 tainted
         else {
-            if(tempReg->bitmap != 0)
+            if(tempReg->tainted != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
         }
     }
@@ -566,7 +566,7 @@ VOID traceXORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     else if(isRegisterTainted(reg2)){
         Register* tempReg = getTaintRegister(reg2);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, size);
     }
 }
@@ -576,7 +576,7 @@ VOID traceArithRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, imm, size);
     } 
 }
@@ -586,7 +586,7 @@ VOID traceArithReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, size);
     } 
 }
@@ -602,7 +602,7 @@ VOID traceArithMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT ad
 
         printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
 
-    } else if(map.bitmap != 0){
+    } else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*)addr, (Register*) NULL, val, size);
     }
 }
@@ -618,18 +618,18 @@ VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
 
         printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*)addr, size);
 
-        UINT64 bitmap = tempReg->bitmap | map.bitmap;
+        UINT64 bitmap = tempReg->tainted | map.tainted;
 
         for(UINT64 i = 0; i < size; i++){
-            if (get_bitmap(map.bitmap, i)) {
+            if (get_bitmap(map.tainted, i)) {
                 tempReg->offset[i] = map.offset[i];
             }
         }
         
         taintReg(reg1, bitmap, tempReg->offset);
 
-    } else if(map.bitmap != 0){
-        taintReg(reg1, map.bitmap, map.offset);
+    } else if(map.tainted != 0){
+        taintReg(reg1, map.tainted, map.offset);
    
         printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*)addr, size);
     }
@@ -641,7 +641,7 @@ VOID traceArithMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT ad
 
     initMemTaint(&map, addr, size);
     
-    if(map.bitmap != 0)
+    if(map.tainted != 0)
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
 }
 
@@ -651,7 +651,7 @@ VOID traceArithMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr,
 
     initMemTaint(&map, addr, size);
     
-    if(map.bitmap != 0)
+    if(map.tainted != 0)
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, size);
 }
 
@@ -659,7 +659,7 @@ VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 {
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
-        UINT64 bitmap = tempReg->bitmap;
+        UINT64 bitmap = tempReg->tainted;
 
         if(bitmap != 0){
             printTraceLog(insAddr, insDis, tempReg, val, imm, size);
@@ -673,7 +673,7 @@ VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
             }
         }
 
-        if(bitmap != tempReg->bitmap){
+        if(bitmap != tempReg->tainted){
             UINT64 offset[32];
 
             for(UINT64 i=0; i < 32; i++) {
@@ -694,7 +694,7 @@ VOID traceANDMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0)
+    if(map.tainted != 0)
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
 }
 
@@ -719,12 +719,12 @@ VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
         printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
         for(UINT i=0; i < size; i++){
-            if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
+            if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
                 tempReg1->offset[i] = tempReg2->offset[i];
             }
         }
 
-        tempReg1->bitmap |= tempReg2->bitmap;
+        tempReg1->tainted |= tempReg2->tainted;
     }
     else if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
@@ -733,12 +733,12 @@ VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
         if(isRegisterTainted(reg2)){
             Register* tempReg2 = getTaintRegister(reg2);
 
-            if(tempReg->bitmap != 0 || tempReg2 != 0)
+            if(tempReg->tainted != 0 || tempReg2 != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
 
         // reg1 tainted
         } else {
-            if(tempReg->bitmap != 0)
+            if(tempReg->tainted != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
         }
     }
@@ -758,7 +758,7 @@ VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr,
 
         for(UINT64 i = 0; i < size; i++){
             //taint mem if reg offset tainted 
-            if (get_bitmap(tempReg->bitmap, i)) {
+            if (get_bitmap(tempReg->tainted, i)) {
 
                 if(isByteTainted(addr+i)){
                     removeTaintByte(addr+i);
@@ -767,7 +767,7 @@ VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr,
                 addTaintByte(addr+i, tempReg->offset[i]);
             }
         }
-    } else if(map.bitmap != 0){
+    } else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*)addr, (Register*) NULL, val, size);
     }
 }
@@ -777,7 +777,7 @@ VOID traceSHLRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, imm, size);
 
         if ((imm % 8) == 0){
@@ -786,7 +786,7 @@ VOID traceSHLRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
             UINT64 count = (imm / 8);
 
-            bitmap = tempReg->bitmap << count;
+            bitmap = tempReg->tainted << count;
 
             for(UINT64 i=0; i < 32 - count; i++){
                 offset[31 - i] = tempReg->offset[31 - i - count];
@@ -807,7 +807,7 @@ VOID traceSHLRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
         Register* tempReg = getTaintRegister(reg1);
         Register* tempReg2 = getTaintRegister(reg2);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, tempReg2, val2, size);
 
         if ((val2 % 8) == 0){
@@ -816,7 +816,7 @@ VOID traceSHLRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
             UINT64 count = (val2 / 8);
 
-            bitmap = tempReg->bitmap << count;
+            bitmap = tempReg->tainted << count;
 
             for(UINT64 i=0; i < 32 - count; i++){
                 offset[31 - i] = tempReg->offset[31 - i - count];
@@ -837,7 +837,7 @@ VOID traceSHLMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0){
+    if(map.tainted != 0){
         Register* tempReg = getTaintRegister(reg);
 
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
@@ -846,7 +846,7 @@ VOID traceSHLMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
         UINT64 bitmap = 0;
         UINT64 count = (val / 8);
 
-        bitmap = map.bitmap << count;
+        bitmap = map.tainted << count;
 
         for(UINT64 i=0; i < 32 - count; i++){
             offset[31 - i] = map.offset[31 - i - count];
@@ -872,14 +872,14 @@ VOID traceSHLMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0){
+    if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
 
         UINT64 offset[32];
         UINT64 bitmap = 0;
         UINT64 count = (imm / 8);
 
-        bitmap = map.bitmap << count;
+        bitmap = map.tainted << count;
 
         for(UINT64 i=0; i < 32 - count; i++){
             offset[31 - i] = map.offset[31 - i - count];
@@ -904,7 +904,7 @@ VOID traceSHRRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     if(isRegisterTainted(reg1)){
         Register* tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, imm, size);
 
         if((imm % 8) == 0){
@@ -913,7 +913,7 @@ VOID traceSHRRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
             UINT64 count = (imm / 8);
 
-            bitmap = tempReg->bitmap >> count;
+            bitmap = tempReg->tainted >> count;
 
             for(UINT64 i=0; i < 32 - count; i++){
                 offset[i] = tempReg->offset[i + count];
@@ -934,7 +934,7 @@ VOID traceSHRRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
         Register* tempReg = getTaintRegister(reg1);
         Register* tempReg2 = getTaintRegister(reg2);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, tempReg2, val2, size);
 
         if((val2 % 8) == 0){
@@ -943,7 +943,7 @@ VOID traceSHRRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 
             UINT64 count = (val2 / 8);
 
-            bitmap = tempReg->bitmap >> count;
+            bitmap = tempReg->tainted >> count;
 
             for(UINT64 i=0; i < 32 - count; i++){
                 offset[i] = tempReg->offset[i + count];
@@ -964,7 +964,7 @@ VOID traceSHRMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0){
+    if(map.tainted != 0){
         Register* tempReg = getTaintRegister(reg);
 
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
@@ -973,7 +973,7 @@ VOID traceSHRMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
         UINT64 bitmap = 0;
         UINT64 count = (val / 8);
 
-        bitmap = map.bitmap >> count;
+        bitmap = map.tainted >> count;
 
         for(UINT64 i=0; i < 32 - count; i++){
             offset[i] = map.offset[i + count];
@@ -999,14 +999,14 @@ VOID traceSHRMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
 
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0){
+    if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
 
         UINT64 offset[32];
         UINT64 bitmap = 0;
         UINT64 count = (imm / 8);
 
-        bitmap = map.bitmap << count;
+        bitmap = map.tainted << count;
 
         for(UINT64 i=0; i < 32 - count; i++){
             offset[i] = map.offset[i + count];
@@ -1037,11 +1037,11 @@ VOID traceMULRegRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1,
         // REG_TAINT* tempReg = getTaintRegister(reg1);
         Register* tempReg2 = getTaintRegister(reg2);
 
-        if(tempReg2->bitmap != 0)
+        if(tempReg2->tainted != 0)
             printTraceLog(insAddr, insDis, NULL, val, tempReg2, val2, imm, size);
 
         // taintReg(reg1, bitmap, offset);            
-        taintReg(reg1, tempReg2->bitmap, tempReg2->offset);
+        taintReg(reg1, tempReg2->tainted, tempReg2->offset);
     } 
 }
 
@@ -1051,9 +1051,9 @@ VOID traceMULRegMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1,
     
     initMemTaint(&map, addr, size);
 
-    if(map.bitmap != 0){
+    if(map.tainted != 0){
         printTraceLog(insAddr, insDis, NULL, val, &map, (UINT8*) addr, imm, size);
-        taintReg(reg1, map.bitmap, map.offset);
+        taintReg(reg1, map.tainted, map.offset);
     } 
 }
 
@@ -1066,7 +1066,7 @@ VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, A
     UINT64 offset[32];
 
     if(tempReg1 != NULL) {
-      bitmap = tempReg1->bitmap;
+      bitmap = tempReg1->tainted;
       for(UINT64 i=0; i < 32; i++) offset[i] = tempReg1->offset[i];
     }
 
@@ -1074,7 +1074,7 @@ VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, A
         printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
     if(tempReg2 != NULL)
-        taintReg(reg1, tempReg2->bitmap, tempReg2->offset);
+        taintReg(reg1, tempReg2->tainted, tempReg2->offset);
     else
         removeTaintRegister(reg1);
 
@@ -1092,17 +1092,17 @@ VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT add
 
     Register* tempReg = getTaintRegister(reg1);
 
-    if(map.bitmap != 0 || tempReg != NULL){
+    if(map.tainted != 0 || tempReg != NULL){
         printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
     }
 
     if(tempReg != NULL)
-        addTaintBlock(addr, size, tempReg->bitmap, tempReg->offset);
+        addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
     else
         removeTaintBlock(addr, size);
 
-    if(map.bitmap != 0)
-        taintReg(reg1, map.bitmap, map.offset);
+    if(map.tainted != 0)
+        taintReg(reg1, map.tainted, map.offset);
     else
         removeTaintRegister(reg1);
 }
@@ -1115,17 +1115,17 @@ VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, A
 
     Register* tempReg = getTaintRegister(reg1);
 
-    if(map.bitmap != 0 || tempReg != NULL){
+    if(map.tainted != 0 || tempReg != NULL){
         printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
     }
 
     if(tempReg != NULL)
-        addTaintBlock(addr, size, tempReg->bitmap, tempReg->offset);
+        addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
     else
         removeTaintBlock(addr, size);
 
-    if(map.bitmap != 0)
-        taintReg(reg1, map.bitmap, map.offset);
+    if(map.tainted != 0)
+        taintReg(reg1, map.tainted, map.offset);
     else
         removeTaintRegister(reg1);
 }
@@ -1163,33 +1163,33 @@ VOID traceCMPXCHGRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opC
     if(isRegisterTainted(reg1)){
         // reg1, reg2 both tainted
         if(isRegisterTainted(reg2)){
-            if(tempReg->bitmap != 0 || tempReg2->bitmap != 0)
+            if(tempReg->tainted != 0 || tempReg2->tainted != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
 
             if(valAX == val1)
-                taintReg(reg1, tempReg2->bitmap, tempReg2->offset);
+                taintReg(reg1, tempReg2->tainted, tempReg2->offset);
             else
-                taintReg(regAX, tempReg->bitmap, tempReg->offset);
+                taintReg(regAX, tempReg->tainted, tempReg->offset);
 
         } 
         // reg1 tainted
         else {
-            if(tempReg->bitmap != 0)
+            if(tempReg->tainted != 0)
                 printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
 
             if(valAX == val1)
                 removeTaintRegister(reg1);
             else
-                taintReg(regAX, tempReg->bitmap, tempReg->offset);
+                taintReg(regAX, tempReg->tainted, tempReg->offset);
         }
     }
     // reg2 tainted
     else if(isRegisterTainted(reg2)){
-        if(tempReg2->bitmap != 0)
+        if(tempReg2->tainted != 0)
             printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg2, val2, size);
 
         if(valAX == val1)
-            taintReg(reg1, tempReg2->bitmap, tempReg2->offset);
+            taintReg(reg1, tempReg2->tainted, tempReg2->offset);
     }
 }
 
@@ -1229,19 +1229,19 @@ VOID traceCMPXCHGMemReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opC
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
 
         if(!memcmp((UINT8*) &valAX, (UINT8*) addr, size))          
-            addTaintBlock(addr, size, tempReg->bitmap, tempReg->offset);
+            addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
         else{
-            if(map.bitmap != 0)
-                taintReg(regAX, map.bitmap, map.offset);
+            if(map.tainted != 0)
+                taintReg(regAX, map.tainted, map.offset);
             else
                 removeTaintRegister(regAX);
         }
     } 
-    else if(map.bitmap != 0){
+    else if(map.tainted != 0){
         printTraceLog(insAddr, insDis, &map, (UINT8*) addr, (Register*) NULL, val, size);
 
         if(!memcmp((UINT8*) &valAX, (UINT8*) addr, size))
-            addTaintBlock(addr, size, tempReg->bitmap, tempReg->offset);
+            addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
     }
 }
 
@@ -1253,7 +1253,7 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
         UINT64 bitmap = 0;
         UINT64 offset[32];
 
-        bitmap = tempReg->bitmap;
+        bitmap = tempReg->tainted;
 
         for(UINT64 i=0; i < 32; i++) offset[i] = -1;
 
@@ -1263,7 +1263,7 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
 
         tempReg = getTaintRegister(reg1);
 
-        if(tempReg->bitmap != 0)
+        if(tempReg->tainted != 0)
             printTraceLog(insAddr, insDis, tempReg, val, size);
     }
 }
