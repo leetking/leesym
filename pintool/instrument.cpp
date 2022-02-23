@@ -16,8 +16,7 @@ list<Page*> g_pages;
 // 记录寄存器被污染的情况
 list<Register*> g_registers;
 
-vector<Byte*> addressTainted;
-
+// operations for memory bytes
 Byte* getTaintByte(UINT64 addr) {
     for (auto page : g_pages) {
         if (page->base == page_base(addr))
@@ -84,6 +83,7 @@ void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
 }
 
 
+// operations for registers
 Register* getTaintRegPointer(REG reg){
     list<Register*>::iterator i;
 
