@@ -16,8 +16,8 @@ void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size){
         Byte* tempMem;
 
         if((tempMem = getTaintMemPointer(addr + i))){
-            map->bitmap |= (0x1 << i);
-            map->offset[i] = tempMem->offset;            
+            set_bitmap(map->bitmap, i);
+            map->offset[i] = tempMem->offset;
         }
     }
 }
@@ -35,12 +35,12 @@ void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, 
         Byte* tempMem;
 
         if((tempMem = getTaintMemPointer(addr1+i))){
-            map1->bitmap |= (0x1 << i);
+            set_bitmap(map1->bitmap, i);
             map1->offset[i] = tempMem->offset;
         }
 
         if((tempMem = getTaintMemPointer(addr2+i))){
-            map2->bitmap |= (0x1 << i);
+            set_bitmap(map2->bitmap, i);
             map2->offset[i] = tempMem->offset;
         }    
     }
@@ -121,7 +121,7 @@ VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
 
         for(UINT64 i = 0; i < size; i++){
             //taint mem if reg offset tainted
-            if((tempReg->bitmap & (0x1 << i))){
+            if (get_bitmap(tempReg->bitmap, i)) {
                 if(checkAlreadyMemTainted(addr+i)){
                     removeMemTainted(addr+i);
                 }
@@ -163,7 +163,7 @@ VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
         if(checkAlreadyMemTainted(addr+i)){
             Byte* tempMem = getTaintMemPointer(addr + i);
 
-            bitmap = bitmap | (0x1 << i);
+            set_bitmap(bitmap, i);
             offset[i] = tempMem->offset;
         } 
 
@@ -192,7 +192,6 @@ VOID taintMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, U
     // }
 
     for(UINT64 i = 0; i < size; i++){
-
         if(checkAlreadyMemTainted(addr+i)){
             removeMemTainted(addr+i);
         }
@@ -314,7 +313,7 @@ VOID taintLODS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp, UI
         if(isMemTainted){
             Byte* tempMem = getTaintMemPointer(addr + i);
 
-            bitmap = bitmap | (0x1 << i);
+            set_bitmap(bitmap, i);
             offset[i] = tempMem->offset;
         }
     }
@@ -507,7 +506,7 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
                 printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
             for(UINT i=0; i < size; i++){
-                if((tempReg1->bitmap & (0x1 << i)) == 0 && (tempReg2->bitmap & (0x1 << i)) != 0){
+                if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
                     tempReg1->offset[i] = tempReg2->offset[i];
                 }
             }
@@ -531,7 +530,7 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
         printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
         for(UINT i=0; i < size; i++){
-            if((tempReg1->bitmap & (0x1 << i)) == 0 && (tempReg2->bitmap & (0x1 << i)) != 0){
+            if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
                 tempReg1->offset[i] = tempReg2->offset[i];
             }
         }
@@ -622,7 +621,7 @@ VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
         UINT64 bitmap = tempReg->bitmap | map.bitmap;
 
         for(UINT64 i = 0; i < size; i++){
-            if((map.bitmap & (0x1 << i)) != 0x0){
+            if (get_bitmap(map.bitmap, i)) {
                 tempReg->offset[i] = map.offset[i];
             }
         }
@@ -670,7 +669,7 @@ VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
             UINT64 byte = (imm >> (i*8)) & 0xff;
 
             if(byte == 0){
-                bitmap &= ~(0x1 << i);
+                clr_bitmap(bitmap, i);
             }
         }
 
@@ -678,7 +677,7 @@ VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
             UINT64 offset[32];
 
             for(UINT64 i=0; i < 32; i++) {
-                if((bitmap >> i) & 0x1){
+                if (get_bitmap(bitmap, i)) {
                     offset[i] = tempReg->offset[i];
                 } else{
                     offset[i] = -1;
@@ -703,7 +702,8 @@ VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
 {
     UINT64 offset[32];
 
-    for(UINT64 i=0; i < 32; i++) offset[i] = -1;
+    for(UINT64 i=0; i < 32; i++)
+        offset[i] = -1;
 
     UINT64 bitmap = 0;
 
@@ -719,7 +719,7 @@ VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADD
         printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
 
         for(UINT i=0; i < size; i++){
-            if((tempReg1->bitmap & (0x1 << i)) == 0 && (tempReg2->bitmap & (0x1 << i)) != 0){
+            if (!get_bitmap(tempReg1->bitmap, i) && get_bitmap(tempReg2->bitmap, i)) {
                 tempReg1->offset[i] = tempReg2->offset[i];
             }
         }
@@ -758,7 +758,7 @@ VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr,
 
         for(UINT64 i = 0; i < size; i++){
             //taint mem if reg offset tainted 
-            if((tempReg->bitmap & (0x1 << i))){
+            if (get_bitmap(tempReg->bitmap, i)) {
 
                 if(checkAlreadyMemTainted(addr+i)){
                     removeMemTainted(addr+i);

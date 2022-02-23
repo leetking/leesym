@@ -11,7 +11,9 @@
 
 using namespace std;
 
+// 记录内存被污染的情况
 list<Page*> g_pages;
+// 记录寄存器被污染的情况
 list<Register*> g_registers;
 
 vector<Byte*> addressTainted;

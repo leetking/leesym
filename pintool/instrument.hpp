@@ -15,6 +15,10 @@ enum {
 // max 512 bits
 enum { REGISTER_WIDTH = 64 };
 
+#define get_bitmap(map, offset) (map & (0x1UL<<(offset)))
+#define set_bitmap(map, offset) (map |= (0x1UL<<(offset)))
+#define clr_bitmap(map, offset) (map &= (~(0x1UL<<(offset))))
+//#define merge_bitmap(map1, map2) ((map1) |= (map2))
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
     REG reg;
