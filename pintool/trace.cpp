@@ -2,7 +2,7 @@
 
 ofstream trace;
 
-void printTraceLogReg(REG_TAINT* reg, UINT64 size){
+void printTraceLogReg(Register* reg, UINT64 size){
     trace << "{";
 
     if(reg != NULL){
@@ -40,7 +40,7 @@ void printTraceLogVal(UINT8* val, UINT64 size){
 }
 
 //trace reg
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -53,7 +53,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, UI
 }
 
 //trace reg imm
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, UINT64 imm, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, UINT64 imm, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -70,7 +70,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, UI
 }
 
 //trace reg reg
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val1, REG_TAINT* reg2, UINT64 val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, Register* reg2, UINT64 val2, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -88,7 +88,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val1, R
 }
 
 //trace reg reg imm
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, REG_TAINT* reg2, UINT64 val2, UINT64 imm, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, Register* reg2, UINT64 val2, UINT64 imm, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -110,7 +110,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, RE
 }
 
 //trace reg mem imm
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, MEM_TAINT_MAP* map, UINT8* val2, UINT64 imm, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, MEM_TAINT_MAP* map, UINT8* val2, UINT64 imm, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -132,7 +132,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val, ME
 }
 
 //trace reg mem
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -150,7 +150,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT64 val1, M
 }
 
 //trace mem reg
-void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val1, REG_TAINT* reg, UINT64 val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val1, Register* reg, UINT64 val2, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogMem(map, size);
@@ -216,7 +216,7 @@ void printTraceLog(UINT64 insAddr, string insDis, MEM_TAINT_MAP* map, UINT8* val
 }
 
 //trace reg reg SIMD
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT8* val1, REG_TAINT* reg2, UINT8* val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, Register* reg2, UINT8* val2, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
@@ -234,7 +234,7 @@ void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT8* val1, R
 }
 
 //trace reg mem SIMD
-void printTraceLog(UINT64 insAddr, string insDis, REG_TAINT* reg, UINT8* val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MEM_TAINT_MAP* map, UINT8* val2, UINT64 size){
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);
