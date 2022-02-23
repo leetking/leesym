@@ -49,8 +49,8 @@ Byte* getTaintMemPointer(UINT64 address){
     list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
-        if((*itBase)->base == (address & 0xfffffffffffff000)){
-           return (*itBase)->vecAddressTainted[address & 0xfff];
+        if ((*itBase)->base == page_base(address)) {
+           return (*itBase)->vecAddressTainted[page_addr(address)];
         }
     }
 
@@ -61,8 +61,8 @@ bool checkAlreadyMemTainted(UINT64 address){
     list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
-        if((*itBase)->base == (address & 0xfffffffffffff000)){
-            if((*itBase)->vecAddressTainted[address & 0xfff] != NULL)
+        if ((*itBase)->base == page_base(address)) {
+            if((*itBase)->vecAddressTainted[page_addr(address)] != NULL)
                 return true;
             else
                 return false;
@@ -77,10 +77,10 @@ VOID removeMemTainted(UINT64 address)
     list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
-        if((*itBase)->base == (address & 0xfffffffffffff000)){
-           if((*itBase)->vecAddressTainted[address & 0xfff] != NULL){
-                delete (*itBase)->vecAddressTainted[address & 0xfff];
-                (*itBase)->vecAddressTainted[address & 0xfff] = NULL;
+        if ((*itBase)->base == page_base(address)) {
+           if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
+                delete (*itBase)->vecAddressTainted[page_addr(address)];
+                (*itBase)->vecAddressTainted[page_addr(address)] = NULL;
             }
         }
     }
@@ -103,13 +103,12 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
 
     if((signed)mem->offset != -1){
         for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
-            if((*itBase)->base == (address & 0xfffffffffffff000)){
-                if((*itBase)->vecAddressTainted[address & 0xfff] != NULL){
-                    delete (*itBase)->vecAddressTainted[address & 0xfff];
-                    (*itBase)->vecAddressTainted[address & 0xfff] = NULL;
+            if ((*itBase)->base == page_base(address)) {
+                if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
+                    delete (*itBase)->vecAddressTainted[page_addr(address)];
+                    (*itBase)->vecAddressTainted[page_addr(address)] = NULL;
                 }
-                (*itBase)->vecAddressTainted[address & 0xfff] = mem;
-
+                (*itBase)->vecAddressTainted[page_addr(address)] = mem;
                 break;
             }
         }
@@ -117,11 +116,11 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
         if(itBase == listBaseAddress.end()){
             Page* mem_base = new Page;
 
-            mem_base->base = address & 0xfffffffffffff000;
+            mem_base->base = page_base(address);
 
-            mem_base->vecAddressTainted.resize(0x1000);
+            mem_base->vecAddressTainted.resize(PIN_PAGE_SIZE_POW2);
 
-            mem_base->vecAddressTainted[address & 0xfff] = mem;
+            mem_base->vecAddressTainted[page_addr(address)] = mem;
 
             listBaseAddress.push_front(mem_base);
         }

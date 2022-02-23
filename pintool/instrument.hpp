@@ -33,6 +33,14 @@ struct Byte {
     UINT64 offset;
 };
 
+enum {
+    PIN_PAGE_SIZE = 12,
+    PIN_PAGE_SIZE_POW2 = (0x1 << PIN_PAGE_SIZE),
+};
+// page_base: 页号
+#define page_base(addr) ((addr) >> PIN_PAGE_SIZE)
+// page_addr: 页内偏移量
+#define page_addr(addr) ((addr) & (PIN_PAGE_SIZE_POW2-1))
 struct Page {
     UINT64 base;
     vector<Byte*> vecAddressTainted;
