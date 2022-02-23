@@ -11,15 +11,15 @@
 
 using namespace std;
 
-list<Page*> listBaseAddress;
-vector<Byte*> addressTainted;
+list<Page*> g_pages;
+list<Register*> g_registers;
 
-list<Register*> regsTainted;
+vector<Byte*> addressTainted;
 
 bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
     list<Register*>::iterator i;
 
-    for(i = regsTainted.begin(); i != regsTainted.end(); i++){
+    for(i = g_registers.begin(); i != g_registers.end(); i++){
         if((*i)->reg == reg){
             UINT64 bitmap = (*i)->bitmap;
 
@@ -36,7 +36,7 @@ bool checkAlreadyRegTainted(REG reg)
 {
     list<Register*>::iterator i;
 
-    for(i = regsTainted.begin(); i != regsTainted.end(); i++){
+    for(i = g_registers.begin(); i != g_registers.end(); i++){
         if((*i)->reg == reg){
             return true;
         }
@@ -48,7 +48,7 @@ bool checkAlreadyRegTainted(REG reg)
 Byte* getTaintMemPointer(UINT64 address){
     list<Page*>::iterator itBase;
 
-    for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
+    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
         if ((*itBase)->base == page_base(address)) {
            return (*itBase)->vecAddressTainted[page_addr(address)];
         }
@@ -60,7 +60,7 @@ Byte* getTaintMemPointer(UINT64 address){
 bool checkAlreadyMemTainted(UINT64 address){
     list<Page*>::iterator itBase;
 
-    for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
+    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
         if ((*itBase)->base == page_base(address)) {
             if((*itBase)->vecAddressTainted[page_addr(address)] != NULL)
                 return true;
@@ -76,7 +76,7 @@ VOID removeMemTainted(UINT64 address)
 {
     list<Page*>::iterator itBase;
 
-    for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
+    for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
         if ((*itBase)->base == page_base(address)) {
            if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
                 delete (*itBase)->vecAddressTainted[page_addr(address)];
@@ -102,7 +102,7 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
     mem->offset = offset;
 
     if((signed)mem->offset != -1){
-        for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
+        for(itBase = g_pages.begin(); itBase != g_pages.end(); itBase++){
             if ((*itBase)->base == page_base(address)) {
                 if((*itBase)->vecAddressTainted[page_addr(address)] != NULL){
                     delete (*itBase)->vecAddressTainted[page_addr(address)];
@@ -113,7 +113,7 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
             }
         }
 
-        if(itBase == listBaseAddress.end()){
+        if(itBase == g_pages.end()){
             Page* mem_base = new Page;
 
             mem_base->base = page_base(address);
@@ -122,7 +122,7 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
 
             mem_base->vecAddressTainted[page_addr(address)] = mem;
 
-            listBaseAddress.push_front(mem_base);
+            g_pages.push_front(mem_base);
         }
     }
 }
@@ -151,7 +151,7 @@ VOID addMemTainted(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
 Register* getTaintRegPointer(REG reg){
     list<Register*>::iterator i;
 
-    for(i = regsTainted.begin(); i != regsTainted.end(); i++){
+    for(i = g_registers.begin(); i != g_registers.end(); i++){
         if((*i)->reg == reg){
             return *i;
         }
@@ -173,7 +173,7 @@ void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size){
             tempReg->offset[i] = -1;
     }
 
-    regsTainted.push_front(tempReg);
+    g_registers.push_front(tempReg);
 
 }
 
@@ -206,7 +206,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
             else
                 tempReg->offset[1] = -1;
 
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
         case REG_AL: 
             if(reg == REG_AH) break;
@@ -218,7 +218,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[0] = offset[0];
             else
                 tempReg->offset[0] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
             
             break;
 
@@ -241,7 +241,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[1] = offset[1];
             else
                 tempReg->offset[1] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
         case REG_BL: 
             if(reg == REG_BH) break;
@@ -253,7 +253,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[0] = offset[0];
             else
                 tempReg->offset[0] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
             break;
 
@@ -276,7 +276,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[1] = offset[1];
             else
                 tempReg->offset[1] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
         case REG_CL: 
             if(reg == REG_CH) break;
@@ -288,7 +288,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[0] = offset[0];
             else
                 tempReg->offset[0] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
             break;
 
@@ -311,7 +311,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[1] = offset[1];
             else
                 tempReg->offset[1] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
 
         case REG_DL:
             if(reg == REG_DH) break;
@@ -323,7 +323,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
                 tempReg->offset[0] = offset[0];
             else
                 tempReg->offset[0] = -1;
-            regsTainted.push_front(tempReg);
+            g_registers.push_front(tempReg);
             break;
 
         #if defined(TARGET_IA32E)
@@ -631,30 +631,30 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RAX:
             tempReg = getTaintRegPointer(REG_RAX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_EAX:  
             tempReg = getTaintRegPointer(REG_EAX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_AX:   
             tempReg = getTaintRegPointer(REG_AX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_AH:  
             tempReg = getTaintRegPointer(REG_AH);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_AL:
             if(reg == REG_AH) break;
 
             tempReg = getTaintRegPointer(REG_AL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
             
             break;
@@ -662,30 +662,30 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RBX:
             tempReg = getTaintRegPointer(REG_RBX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_EBX: 
             tempReg = getTaintRegPointer(REG_EBX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_BX:  
             tempReg = getTaintRegPointer(REG_BX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_BH:   
             tempReg = getTaintRegPointer(REG_BH);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_BL: 
             if(reg == REG_BH) break;
 
             tempReg = getTaintRegPointer(REG_BL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
@@ -693,29 +693,29 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RCX: 
             tempReg = getTaintRegPointer(REG_RCX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_ECX:  
             tempReg = getTaintRegPointer(REG_ECX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_CX: 
             tempReg = getTaintRegPointer(REG_CX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_CH:  
             tempReg = getTaintRegPointer(REG_CH);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_CL:  
             if(reg == REG_CH) break;
             tempReg = getTaintRegPointer(REG_CL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
             
             break;
@@ -723,30 +723,30 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RDX: 
             tempReg = getTaintRegPointer(REG_RDX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_EDX: 
             tempReg = getTaintRegPointer(REG_EDX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_DX:  
             tempReg = getTaintRegPointer(REG_DX);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_DH:   
             tempReg = getTaintRegPointer(REG_DH);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_DL:   
             if(reg == REG_DH) break;
 
             tempReg = getTaintRegPointer(REG_DL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
@@ -754,24 +754,24 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RDI: 
             tempReg = getTaintRegPointer(REG_RDI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_EDI:  
             tempReg = getTaintRegPointer(REG_EDI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_DI:  
             tempReg = getTaintRegPointer(REG_DI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         #if defined(TARGET_IA32E)
         case REG_DIL: 
             tempReg = getTaintRegPointer(REG_DIL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
@@ -780,24 +780,24 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RSI: 
             tempReg = getTaintRegPointer(REG_RSI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_ESI: 
             tempReg = getTaintRegPointer(REG_ESI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_SI:  
             tempReg = getTaintRegPointer(REG_SI);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         #if defined(TARGET_IA32E)
         case REG_SIL: 
             tempReg = getTaintRegPointer(REG_SIL);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
@@ -806,176 +806,176 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_R8: 
             tempReg = getTaintRegPointer(REG_R8);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R8D: 
             tempReg = getTaintRegPointer(REG_R8D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R8W:  
             tempReg = getTaintRegPointer(REG_R8W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R8B: 
             tempReg = getTaintRegPointer(REG_R8B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R9: 
             tempReg = getTaintRegPointer(REG_R9);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R9D: 
             tempReg = getTaintRegPointer(REG_R9D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R9W:  
             tempReg = getTaintRegPointer(REG_R9W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R9B: 
             tempReg = getTaintRegPointer(REG_R9B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R10: 
             tempReg = getTaintRegPointer(REG_R10);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R10D: 
             tempReg = getTaintRegPointer(REG_R10D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R10W:  
             tempReg = getTaintRegPointer(REG_R10W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R10B: 
             tempReg = getTaintRegPointer(REG_R10B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R11: 
             tempReg = getTaintRegPointer(REG_R11);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R11D: 
             tempReg = getTaintRegPointer(REG_R11D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R11W:  
             tempReg = getTaintRegPointer(REG_R11W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R11B: 
             tempReg = getTaintRegPointer(REG_R11B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R12: 
             tempReg = getTaintRegPointer(REG_R12);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R12D: 
             tempReg = getTaintRegPointer(REG_R12D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R12W:  
             tempReg = getTaintRegPointer(REG_R12W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R12B: 
             tempReg = getTaintRegPointer(REG_R12B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R13: 
             tempReg = getTaintRegPointer(REG_R13);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R13D: 
             tempReg = getTaintRegPointer(REG_R13D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R13W:  
             tempReg = getTaintRegPointer(REG_R13W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R13B: 
             tempReg = getTaintRegPointer(REG_R13B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R14: 
             tempReg = getTaintRegPointer(REG_R14);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R14D: 
             tempReg = getTaintRegPointer(REG_R14D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R14W:  
             tempReg = getTaintRegPointer(REG_R14W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R14B: 
             tempReg = getTaintRegPointer(REG_R14B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_R15: 
             tempReg = getTaintRegPointer(REG_R15);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R15D: 
             tempReg = getTaintRegPointer(REG_R15D);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R15W:  
             tempReg = getTaintRegPointer(REG_R15W);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_R15B: 
             tempReg = getTaintRegPointer(REG_R15B);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
@@ -983,96 +983,96 @@ bool removeRegTainted(REG reg){
 
         case REG_YMM0: 
             tempReg = getTaintRegPointer(REG_YMM0);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM0: 
             tempReg = getTaintRegPointer(REG_XMM0);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM1: 
             tempReg = getTaintRegPointer(REG_YMM1);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM1: 
             tempReg = getTaintRegPointer(REG_XMM1);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM2: 
             tempReg = getTaintRegPointer(REG_YMM2);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM2: 
             tempReg = getTaintRegPointer(REG_XMM2);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM3: 
             tempReg = getTaintRegPointer(REG_YMM3);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM3: 
             tempReg = getTaintRegPointer(REG_XMM3);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM4: 
             tempReg = getTaintRegPointer(REG_YMM4);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM4: 
             tempReg = getTaintRegPointer(REG_XMM4);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM5: 
             tempReg = getTaintRegPointer(REG_YMM5);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM5: 
             tempReg = getTaintRegPointer(REG_XMM5);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM6: 
             tempReg = getTaintRegPointer(REG_YMM6);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM6: 
             tempReg = getTaintRegPointer(REG_XMM6);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM7: 
             tempReg = getTaintRegPointer(REG_YMM7);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM7: 
             tempReg = getTaintRegPointer(REG_XMM7);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
@@ -1080,96 +1080,96 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_YMM8: 
             tempReg = getTaintRegPointer(REG_YMM8);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM8: 
             tempReg = getTaintRegPointer(REG_XMM8);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM9: 
             tempReg = getTaintRegPointer(REG_YMM9);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM9: 
             tempReg = getTaintRegPointer(REG_XMM9);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM10: 
             tempReg = getTaintRegPointer(REG_YMM10);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM10: 
             tempReg = getTaintRegPointer(REG_XMM10);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM11: 
             tempReg = getTaintRegPointer(REG_YMM11);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM11: 
             tempReg = getTaintRegPointer(REG_XMM11);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM12: 
             tempReg = getTaintRegPointer(REG_YMM12);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM12: 
             tempReg = getTaintRegPointer(REG_XMM12);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM13: 
             tempReg = getTaintRegPointer(REG_YMM13);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM13: 
             tempReg = getTaintRegPointer(REG_XMM13);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM14: 
             tempReg = getTaintRegPointer(REG_YMM14);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM14: 
             tempReg = getTaintRegPointer(REG_XMM14);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
 
         case REG_YMM15: 
             tempReg = getTaintRegPointer(REG_YMM15);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
         case REG_XMM15: 
             tempReg = getTaintRegPointer(REG_XMM15);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
@@ -1178,13 +1178,13 @@ bool removeRegTainted(REG reg){
         #if defined(TARGET_IA32E)
         case REG_RBP:
             tempReg = getTaintRegPointer(REG_RBP);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
         #endif
 
         case REG_EBP:
             tempReg = getTaintRegPointer(REG_EBP);
-            regsTainted.remove(tempReg);
+            g_registers.remove(tempReg);
             delete tempReg;
 
             break;
