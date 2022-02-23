@@ -11,7 +11,7 @@
 #define REG_SIZE_32 32
 
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
-struct REG_TAINT {
+struct Register {
     REG reg;
     UINT64 bitmap;
     UINT64 offset[32];
@@ -44,7 +44,7 @@ VOID removeMemTainted(UINT64 address, UINT64 size);
 VOID addMemTainted(UINT64 address, UINT64 offset);
 VOID addMemTainted(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]);
 
-REG_TAINT* getTaintRegPointer(REG reg);
+Register* getTaintRegPointer(REG reg);
 void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size);
 bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]);
 bool removeRegTainted(REG reg);

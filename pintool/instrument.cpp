@@ -14,10 +14,10 @@ using namespace std;
 list<MEM_TAINT_BASE*> listBaseAddress;
 vector<MEM_TAINT*> addressTainted;
 
-list<REG_TAINT*> regsTainted;
+list<Register*> regsTainted;
 
 bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
-    list<REG_TAINT*>::iterator i;
+    list<Register*>::iterator i;
 
     for(i = regsTainted.begin(); i != regsTainted.end(); i++){
         if((*i)->reg == reg){
@@ -34,7 +34,7 @@ bool checkAlreadyRegTaintedOffset(REG reg, UINT8 offset){
 
 bool checkAlreadyRegTainted(REG reg)
 {
-    list<REG_TAINT*>::iterator i;
+    list<Register*>::iterator i;
 
     for(i = regsTainted.begin(); i != regsTainted.end(); i++){
         if((*i)->reg == reg){
@@ -149,8 +149,8 @@ VOID addMemTainted(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]){
     }
 }
 
-REG_TAINT* getTaintRegPointer(REG reg){
-    list<REG_TAINT*>::iterator i;
+Register* getTaintRegPointer(REG reg){
+    list<Register*>::iterator i;
 
     for(i = regsTainted.begin(); i != regsTainted.end(); i++){
         if((*i)->reg == reg){
@@ -162,7 +162,7 @@ REG_TAINT* getTaintRegPointer(REG reg){
 }
 
 void pushTaintReg(REG reg, UINT64 bitmap, UINT64 offset[], UINT64 size){
-    REG_TAINT* tempReg = new REG_TAINT;
+    Register* tempReg = new Register;
 
     tempReg->reg = reg;
     tempReg->bitmap = bitmap & ((0x1 << size) - 1);
@@ -184,7 +184,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
         removeRegTainted(reg);
     }
 
-    REG_TAINT* tempReg;
+    Register* tempReg;
 
     switch(reg){
         #if defined(TARGET_IA32E)
@@ -199,7 +199,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
             pushTaintReg(REG_AX, bitmap, offset, REG_SIZE_2);
      
         case REG_AH:   
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_AH;
             tempReg->bitmap = bitmap & 0x2;
             if(tempReg->bitmap != 0)
@@ -212,7 +212,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
         case REG_AL: 
             if(reg == REG_AH) break;
 
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_AL;
             tempReg->bitmap = bitmap & 0x1;
             if(tempReg->bitmap != 0)
@@ -235,7 +235,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
             pushTaintReg(REG_BX, bitmap, offset, REG_SIZE_2);
 
         case REG_BH:  
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_BH;
             tempReg->bitmap = bitmap & 0x2;
             if(tempReg->bitmap != 0)
@@ -247,7 +247,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
         case REG_BL: 
             if(reg == REG_BH) break;
 
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_BL;
             tempReg->bitmap = bitmap & 0x1;
             if(tempReg->bitmap != 0)
@@ -270,7 +270,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
             pushTaintReg(REG_CX, bitmap, offset, REG_SIZE_2);
 
         case REG_CH:  
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_CH;
             tempReg->bitmap = bitmap & 0x2;
             if(tempReg->bitmap != 0)
@@ -282,7 +282,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
         case REG_CL: 
             if(reg == REG_CH) break;
 
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_CL;
             tempReg->bitmap = bitmap & 0x1;
             if(tempReg->bitmap != 0)
@@ -305,7 +305,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
             pushTaintReg(REG_DX, bitmap, offset, REG_SIZE_2);
 
         case REG_DH:   
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_DH;
             tempReg->bitmap = bitmap & 0x2;
             if(tempReg->bitmap != 0)
@@ -317,7 +317,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
         case REG_DL:
             if(reg == REG_DH) break;
 
-            tempReg = new REG_TAINT;
+            tempReg = new Register;
             tempReg->reg = REG_DL;
             tempReg->bitmap = bitmap & 0x1;
             if(tempReg->bitmap != 0)
@@ -625,7 +625,7 @@ bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]){
 }
 
 bool removeRegTainted(REG reg){
-    REG_TAINT* tempReg;
+    Register* tempReg;
 
     switch(reg){
 
