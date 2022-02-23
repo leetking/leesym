@@ -1,5 +1,5 @@
 CXX  = g++
-CXXFLAGS = -std=c++11 -O3 -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS
+CXXFLAGS = -std=c++11 -O0 -g -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS
 TARGET = traceAnalyzer
 OBJECTS = traceAnalyzer.o utils.o fieldValue.o operand.o trace.o field.o reduction.o logging.o solver.o
 LIBS = -lz3 -lgmp
