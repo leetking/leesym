@@ -512,7 +512,9 @@ u32 get_values(char* values, u8*** pdest, int size){
   return count;
 }
 
-struct st_field** read_field_file(u8* field_file, u32* pfield_count){
+// 如何解析 field_file
+struct st_field** read_field_file(u8* field_file, u32* pfield_count)
+{
   FILE* fp;
   u8* line = NULL;
   struct st_field** fields = NULL;
@@ -527,6 +529,7 @@ struct st_field** read_field_file(u8* field_file, u32* pfield_count){
 
   if(fp == NULL)   FATAL("Failed to read offset file.");
 
+  // fields 是一个指针数组
   while ((read = getline((char**)&line, &len, fp)) != -1) {
 
     if(fields == NULL){
@@ -572,6 +575,7 @@ struct st_field** read_field_file(u8* field_file, u32* pfield_count){
       memset(fields[field_count]->condition_boundaries, 0, sizeof(u8*));
       memset(fields[field_count]->interests, 0, sizeof(u8*));
 
+      // xxx_cnount 表示对应的值有多少个, 存放在对应位置中，转换后的小端序值
       fields[field_count]->marker_count = get_values(marker+1, &fields[field_count]->markers, fields[field_count]->size);
       fields[field_count]->constraint_count = get_multi_values(cons+1, &fields[field_count]->constraints, fields[field_count]->size);
       fields[field_count]->condition_boundary_count = get_values(con_boundary+1, &fields[field_count]->condition_boundaries, fields[field_count]->size);
