@@ -11,7 +11,7 @@
 
 using namespace std;
 
-list<MEM_TAINT_BASE*> listBaseAddress;
+list<Page*> listBaseAddress;
 vector<Byte*> addressTainted;
 
 list<Register*> regsTainted;
@@ -46,7 +46,7 @@ bool checkAlreadyRegTainted(REG reg)
 }
 
 Byte* getTaintMemPointer(UINT64 address){
-    list<MEM_TAINT_BASE*>::iterator itBase;
+    list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
         if((*itBase)->base == (address & 0xfffffffffffff000)){
@@ -58,7 +58,7 @@ Byte* getTaintMemPointer(UINT64 address){
 }
 
 bool checkAlreadyMemTainted(UINT64 address){
-    list<MEM_TAINT_BASE*>::iterator itBase;
+    list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
         if((*itBase)->base == (address & 0xfffffffffffff000)){
@@ -74,7 +74,7 @@ bool checkAlreadyMemTainted(UINT64 address){
 
 VOID removeMemTainted(UINT64 address)
 {
-    list<MEM_TAINT_BASE*>::iterator itBase;
+    list<Page*>::iterator itBase;
 
     for(itBase = listBaseAddress.begin(); itBase != listBaseAddress.end(); itBase++){
         if((*itBase)->base == (address & 0xfffffffffffff000)){
@@ -96,7 +96,7 @@ VOID removeMemTainted(UINT64 address, UINT64 size)
 VOID addMemTainted(UINT64 address, UINT64 offset)
 {
     Byte* mem = new Byte;
-    list<MEM_TAINT_BASE*>::iterator itBase;
+    list<Page*>::iterator itBase;
 
     mem->address = address;
     mem->offset = offset;
@@ -115,7 +115,7 @@ VOID addMemTainted(UINT64 address, UINT64 offset)
         }
 
         if(itBase == listBaseAddress.end()){
-            MEM_TAINT_BASE* mem_base = new MEM_TAINT_BASE;
+            Page* mem_base = new Page;
 
             mem_base->base = address & 0xfffffffffffff000;
 

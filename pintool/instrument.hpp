@@ -33,8 +33,7 @@ struct Byte {
     UINT64 offset;
 };
 
-
-struct MEM_TAINT_BASE {
+struct Page {
     UINT64 base;
     vector<Byte*> vecAddressTainted;
 };
