@@ -132,7 +132,7 @@ void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[])
 /* TODO: correctly handle registers*/
 bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[])
 {
-    if (reg == REGISTER_INVALID || 0x0 == bitmap)
+    if (reg == REGISTER_INVALID)
         return false;
 
     switch (reg) {
