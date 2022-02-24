@@ -114,8 +114,6 @@ void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[])
     // assert(size is 1, 2, 4, 8 etc)
 #define cut_bitmap(map, bits) (map &= ((0x1<<(bits)) - 1))
     cut_bitmap(bitmap, size);
-    if (0x0 == bitmap)
-        return;
 
     Register* new_reg = new Register(reg, bitmap, offset);
     for (auto& registor : g_registers) {
