@@ -247,6 +247,7 @@ struct queue_entry {
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
 
+  u8  has_concolic_exe;               // 是否已经进行过符号执行
   struct st_field** fields;
 
   u32 field_count;
@@ -352,7 +353,45 @@ enum {
   /* 05 */ FAULT_NOBITS
 };
 
-char *intriguer_path;
+u8 *intriguer_path;
+char *target_cmdline;
+
+/* 替换字符串中的 @@ */
+static char *replace_aa(char const *str, char const *repl)
+{
+    int repl_len = strlen(repl);
+    int len = strlen(str);
+    len = 1024;
+    int i = 0;
+    char *ret = ck_alloc(len + 1);
+    char const *end = str + len;
+    while (str < end) {
+        char const *aa_loc = strstr(str, "@@");
+        char const *mid = aa_loc? aa_loc: end;
+        if (mid - str > len - i) {
+            ret = ck_realloc(ret, (mid - str) + 2*len + 1);
+            len = (mid-str) + 2*len;
+        }
+        memcpy(ret + i, str, mid - str);
+        i += mid - str;
+        str = mid;
+
+        // skip @@ and copy repl
+        if (aa_loc) {
+            str += 2;
+            if (repl_len > len - i) {
+                ret = ck_realloc(ret, repl_len + 2*len + 1);
+                len = repl_len + 2*len;
+            }
+            memcpy(ret + i, repl, repl_len);
+            i += repl_len;
+        }
+    }
+    ret[i] = '\0';
+
+    return ret;
+}
+
 
 const u32 intriguer_timeout = 90;
 
@@ -1050,6 +1089,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->passed_det   = passed_det;
   q->fields       = NULL;
   q->field_count  = 0;
+  q->has_concolic_exe = 0;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -5338,42 +5378,43 @@ static u8 fuzz_one(char** argv) {
   char* fname = alloc_printf("%s", queue_cur->fname);
   char* field_name = alloc_printf("%s/field/%06u", out_dir, current_entry);
 
-  char template[] = "/tmp/tmpdir.XXXXXX";
+  char template[] = "/tmp/myfuzzer.out.XXXXXX";
   char *temp_dir = mkdtemp(template);
 
-  if(access(field_name, F_OK) == -1 && pending_not_fuzzed != 0) {
-    if(pending_not_fuzzed == 0){
-      setenv("INTRIGUER_REDUCTION_THRESHOLD", "1024", 1);
-    }
-    else{
-      setenv("INTRIGUER_REDUCTION_THRESHOLD", "16", 1);
-    }
+  if (!queue_cur->has_concolic_exe) {
+  //if(access(field_name, F_OK) == -1 && pending_not_fuzzed != 0) {
+      if(pending_not_fuzzed == 0) {
+          setenv("INTRIGUER_REDUCTION_THRESHOLD", "1024", 1);
+      }
+      else{
+          setenv("INTRIGUER_REDUCTION_THRESHOLD", "16", 1);
+      }
 
-    printf("\n\nGenerating field file: %s/field/%06u ... \n", out_dir, current_entry);
-  
-    u8 *cmd, *intriguer_cmd;
+      printf("\n\nGenerating field file: %s/field/%06u ... \n", out_dir, current_entry);
 
-    intriguer_cmd = alloc_printf("%s", getenv("INTRIGUER_CMD"));
+      u8 *cmd;
+      char *intriguer_cmd;
+      int ret;
 
-    cmd = alloc_printf("python %s -s 1 -t %d -i %s -o %s -- %s > /dev/null 2> /dev/null",
-        intriguer_path, intriguer_timeout, fname, temp_dir, intriguer_cmd);
+      intriguer_cmd = replace_aa(target_cmdline, fname);
+      cmd = alloc_printf("python %s -s 1 -t %d -i %s -o %s -- %s > /dev/null 2> /dev/null",
+              intriguer_path, intriguer_timeout, fname, temp_dir, intriguer_cmd);
 
-    // printf("cmd: %s\n", cmd);
-    system(cmd);
-    
-    ck_free(intriguer_cmd);
-    ck_free(cmd);
+      printf("cmd: %s\n", cmd);
+      ret = system(cmd);
+      if (ret == 0)
+          queue_cur->has_concolic_exe = 1;
+      ck_free(cmd);
+      ck_free(intriguer_cmd);
 
-    cmd = alloc_printf("cp %s/field.out %s", temp_dir, field_name);
+      cmd = alloc_printf("cp %s/field.txt %s", temp_dir, field_name);
+      // printf("cmd: %s\n", cmd);
+      system(cmd);
+      ck_free(cmd);
 
-    // printf("cmd: %s\n", cmd);
-    system(cmd);
-    ck_free(cmd);
-
-    cmd = alloc_printf("rm -r %s", temp_dir);
-
-    system(cmd);
-    ck_free(cmd);
+      cmd = alloc_printf("rm -rf %s", temp_dir);
+      system(cmd);
+      ck_free(cmd);
   }
 
   if(queue_cur->fields == NULL)
@@ -8355,7 +8396,7 @@ static void save_cmdline(u32 argc, char** argv) {
 
   for (i = 0; i < argc; i++)
     len += strlen(argv[i]) + 1;
-  
+
   buf = orig_cmdline = ck_alloc(len);
 
   for (i = 0; i < argc; i++) {
@@ -8375,18 +8416,33 @@ static void save_cmdline(u32 argc, char** argv) {
 
 #ifndef AFL_LIB
 
-static void init_intriguer() {
-  char* intriguer_root;
-  
-  intriguer_root = getenv("INTRIGUER_ROOT");
-  
-  if (intriguer_root == NULL){
-    FATAL("Failed to read INTRIGUER_ROOT.");
-  }
 
-  intriguer_path = ck_alloc(strlen(intriguer_root) + 1024);
+static void init_intriguer(int argc, char **argv)
+{
+    char const *intriguer_root;
 
-  sprintf(intriguer_path, "%s/bin/run_intriguer.py", intriguer_root);
+    intriguer_root = getenv("INTRIGUER_ROOT");
+    if (!intriguer_root) {
+        WARNF("Failed to read INTRIGUER_ROOT, use ../ instead.");
+        intriguer_root = "../";
+    }
+
+    intriguer_path = alloc_printf("%s/bin/run_intriguer.py", intriguer_root);
+
+    // 备份目标程序运行参数
+    char *buf;
+    int len = 1;
+    for (int i = 0; i < argc; ++i)
+        len += strlen(argv[i])+1;
+    buf = target_cmdline = ck_alloc(len * sizeof(char*));
+    for (int i = 0; i < argc; ++i) {
+        int l = strlen(argv[i]);
+        memcpy(buf, argv[i], l);
+        buf += l;
+        if (i != argc-1) *(buf++) = ' ';
+    }
+    *buf = '\0';
+    printf("target_cmdline: %s\n", target_cmdline);
 }
 
 /* Main entry point */
@@ -8589,7 +8645,7 @@ int main(int argc, char** argv) {
   setup_signal_handlers();
   check_asan_opts();
 
-  init_intriguer();
+  init_intriguer(argc - optind, argv + optind);
 
   if (sync_id) fix_up_sync();
 
