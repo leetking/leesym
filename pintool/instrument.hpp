@@ -3,6 +3,10 @@
 
 #include "pin.H"
 
+#include <fstream>
+
+extern ofstream output;
+
 enum {
     REG_SIZE_1 = 1,
     REG_SIZE_2 = 2,
@@ -43,8 +47,8 @@ struct Register {
         for (UINT64 i = 0; i < REGISTER_WIDTH; ++i)
             offset[i] = INVALID_OFFSET;
         if (offs) {
-            for (UINT64 i = 0; i < REGISTER_WIDTH; ++i) {
-                if (get_bitmap(bits, i))
+            for (UINT64 i = 0; i < REGISTER_WIDTH && bits; ++i, bits >>= 1) {
+                if (bits & 0x1)
                     offset[i] = offs[i];
             }
         }
@@ -109,8 +113,5 @@ bool isRegisterTainted(REG reg);
 void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[]);
 bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]);
 bool removeTaintRegister(REG reg);
-
-
-extern ofstream output;
 
 #endif
