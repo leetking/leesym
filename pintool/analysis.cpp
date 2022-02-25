@@ -7,12 +7,12 @@
 // v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
 {
-    if(!isTaintStart) return;
+    if(!isTaintStart)
+        return;
 
     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
 
-    switch (ins_indx){
-
+    switch (ins_indx) {
     // 复制 DS:SI -> ES:DI
     case XED_ICLASS_MOVSQ:  // 8B
     case XED_ICLASS_MOVSD:  // 4B, == movsl
@@ -100,18 +100,20 @@ VOID Instruction(INS ins, VOID *v)
         break;
 
     /* TODO */
+    case XED_ICLASS_CALL_FAR:
     case XED_ICLASS_CALL_NEAR:
-        break;
 
     case XED_ICLASS_JMP:
-        break;
 
     case XED_ICLASS_LEAVE:
-        break;
 
     case XED_ICLASS_RET_NEAR:
     case XED_ICLASS_RET_FAR:
-
+        INS_InsertCall(
+                ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+                IARG_ADDRINT, INS_Address(ins),
+                IARG_PTR, new string(INS_Disassemble(ins)),
+                IARG_END);
         break;
 
     case XED_ICLASS_NOP:
@@ -243,7 +245,6 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_END);
             }
         }
-
         break;
 
     case XED_ICLASS_PCMPEQB:
@@ -298,9 +299,7 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_END);
             }
-
         }
-    
         break;
     
     case XED_ICLASS_PUSH:
@@ -340,15 +339,13 @@ VOID Instruction(INS ins, VOID *v)
                 IARG_MEMORYWRITE_EA,
                 IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                 IARG_END);   
-        }
-        else{
+        } else {
             INS_InsertCall(
                 ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
                 IARG_ADDRINT, INS_Address(ins),
                 IARG_PTR, new string(INS_Disassemble(ins)),
                 IARG_END);
         }
-
         break;
 
     case XED_ICLASS_POP:
@@ -1308,7 +1305,6 @@ VOID Instruction(INS ins, VOID *v)
         IARG_ADDRINT, INS_Address(ins),
         IARG_PTR, new string(INS_Disassemble(ins)),
         IARG_END);
-
         break;
 
     case XED_ICLASS_BSWAP:
@@ -1325,6 +1321,11 @@ VOID Instruction(INS ins, VOID *v)
         break;
 
     default:
+        INS_InsertCall(
+                ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+                IARG_ADDRINT, INS_Address(ins),
+                IARG_PTR, new string(INS_Disassemble(ins)),
+                IARG_END);
         break;
     }
 }
