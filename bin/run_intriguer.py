@@ -84,15 +84,18 @@ def generate_testcase(input_file, field_file, outdir):
 
     print('{} test cases are generated.'.format(i))
 
+def need_redirect_stdin(cmds):
+    return '@@' not in ' '.join(cmds)
+
 def main():
     args = parse_args()
 
     os.environ['ASAN_OPTIONS'] = 'detect_leaks=0'
-    if not os.environ['INTRIGUER_ROOT']:
+    if 'INTRIGUER_ROOT' not in os.environ:
         INTRIGUER_ROOT = '..'
     else:
         INTRIGUER_ROOT = os.environ['INTRIGUER_ROOT']
-    PIN_ROOT = os.path.join(INTRIGUER_ROOT, 'third_party/pin-3.7-97619-0d0c92f4f')
+    PIN_ROOT = os.path.join(INTRIGUER_ROOT, 'pin-3.7')
     pin_path = os.path.join(PIN_ROOT, 'pin')
     analyzer_path = os.path.join(INTRIGUER_ROOT, 'traceAnalyzer/traceAnalyzer')
     testcase_dir = os.path.join(args.output_dir, 'testcases')
@@ -123,8 +126,11 @@ def main():
     timeout_kill = ""
     if args.timeout:
         timeout_kill = "timeout -k 5 {}".format(int(args.timeout) * 20 / 90)
+    redirect_stdin = ""
+    if need_redirect_stdin(args.cmd):
+        redirect_stdin = f"< {args.input_file}"
 
-    cmd = f"cat {args.input_file} | {timeout_kill} {pin_path} -t {pintool} -i {args.input_file} -o {trace_out} -l {trace_log} -- {target_cmd} > /dev/null"
+    cmd = f"env PIN_ROOT={PIN_ROOT} {timeout_kill} {pin_path} -t {pintool} -i {args.input_file} -o {trace_out} -l {trace_log} -- {target_cmd} {redirect_stdin} > /dev/null"
     print('[CMD]:', cmd)
     os.system(cmd)
     print('--- Execution Monitor takes {:.3f} seconds ---'.format(time.time() - start_time))

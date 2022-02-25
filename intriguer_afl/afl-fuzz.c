@@ -8424,7 +8424,7 @@ static void init_intriguer(int argc, char **argv)
     intriguer_root = getenv("INTRIGUER_ROOT");
     if (!intriguer_root) {
         WARNF("Failed to read INTRIGUER_ROOT, use ../ instead.");
-        intriguer_root = "../";
+        intriguer_root = "..";
     }
 
     intriguer_path = alloc_printf("%s/bin/run_intriguer.py", intriguer_root);
