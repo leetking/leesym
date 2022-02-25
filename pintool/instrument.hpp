@@ -5,7 +5,7 @@
 
 #include <fstream>
 
-extern ofstream output;
+extern ofstream logfile;
 
 enum {
     REG_SIZE_1 = 1,

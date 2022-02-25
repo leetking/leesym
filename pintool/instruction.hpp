@@ -53,6 +53,6 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
 
 VOID traceUnsupport(ADDRINT insAddr, std::string insDis);
 
-extern ofstream output;
+extern ofstream logfile;
 
 #endif

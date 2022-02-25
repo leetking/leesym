@@ -44,8 +44,8 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
 
     // read(fd, mem, size)
     if(num == __NR_read){
-        output << "[READ FILE]\t";
-        output << hex << "0x" << ip << ":\tfd: " << arg0 << endl;
+        logfile << "[READ FILE]\t";
+        logfile << hex << "0x" << ip << ":\tfd: " << arg0 << endl;
 
         taintMemoryStart = static_cast<INT64>(arg1);
 
@@ -56,14 +56,14 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         }
 
     } else if(num == __NR_open){
-        output << "[OPEN FILE]\t";
+        logfile << "[OPEN FILE]\t";
 
-        output << hex << "0x" << ip << ":\t" << (char*)arg0 << endl;
+        logfile << hex << "0x" << ip << ":\t" << (char*)arg0 << endl;
 
         // 打开目标程序读取的文件
         if(strstr((char*)arg0, targetFileName.c_str()) != NULL){
             isTargetFileOpen = true;
-            output << "\tOpen target file" << endl;
+            logfile << "\tOpen target file" << endl;
 
             isTaintStart = true;
         }
@@ -74,7 +74,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         }
 
     } else if(num == __NR_close) {
-        output << hex << "[CLOSE FILE]\t\tfd: " << arg0 << endl;
+        logfile << hex << "[CLOSE FILE]\t\tfd: " << arg0 << endl;
 
         if(arg0 == targetFileFd){
             targetFileFd = 0xFFFFFFFF;
@@ -84,7 +84,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
             isTaintStart = true;
         }
     } else if(num == __NR_lseek){
-        output << hex << "[LSEEK FILE]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
+        logfile << hex << "[LSEEK FILE]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
 
         if(arg0 == targetFileFd){
             isLseekCalled = true;
@@ -93,7 +93,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
     // TODO 140 是什么系统调用, llseek, 为何不写 __NR_llseek
     // TODO 为何要直接写 __NR_lseek 而不是 SYS_lseek 呢
     } else if(num == 140){
-        output << hex << "[LLSEEK FILE]\t\tfd: " << arg0 << " offseth: " << arg1 << " offsetl: " << arg2 << " result: " << arg3 <<" whence: " << arg4 << endl;
+        logfile << hex << "[LLSEEK FILE]\t\tfd: " << arg0 << " offseth: " << arg1 << " offsetl: " << arg2 << " result: " << arg3 <<" whence: " << arg4 << endl;
 
         if(arg0 == targetFileFd) {
             llseekResult = (UINT64*)arg3;
@@ -102,7 +102,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
 
     // TODO mmap 和 mmap2 的区别
     } else if (num == __NR_mmap){
-        output << hex << "[MMAP]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
+        logfile << hex << "[MMAP]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
     }
 
 #if defined(TARGET_LINUX) && defined(TARGET_IA32)
@@ -123,7 +123,7 @@ VOID SysAfter(ADDRINT ret)
         targetFileFd = ret;
         isTargetFileOpen = false;
         globalOffset = 0;
-        output << "\topen file descriptor " << targetFileFd << endl;
+        logfile << "\topen file descriptor " << targetFileFd << endl;
     } 
 
     if(isTargetFileRead && ret >= 0){
@@ -138,23 +138,23 @@ VOID SysAfter(ADDRINT ret)
             globalOffset++;
         }
           
-        output << "[TAINT]\t\t\t0x" << size << " bytes tainted from ";
-        output << hex << "0x" << taintMemoryStart << " to 0x" << taintMemoryStart+size;
-        output << " by file offset 0x" << globalOffset-size << " (via read)" << endl;
+        logfile << "[TAINT]\t\t\t0x" << size << " bytes tainted from ";
+        logfile << hex << "0x" << taintMemoryStart << " to 0x" << taintMemoryStart+size;
+        logfile << " by file offset 0x" << globalOffset-size << " (via read)" << endl;
     }
 
     if(isLseekCalled == true){
         isLseekCalled = false;
         globalOffset = ret;
 
-        output << "[LSEEK] result: " << llseekResult << endl;
+        logfile << "[LSEEK] result: " << llseekResult << endl;
     }
 
     if(isLlseekCalled == true){
         isLlseekCalled = false;
         globalOffset = *llseekResult;
 
-        output << "[LLSEEK] result: " << *llseekResult << endl;
+        logfile << "[LLSEEK] result: " << *llseekResult << endl;
     }
 
     // mmap2 内存映射方式读取
@@ -168,8 +168,8 @@ VOID SysAfter(ADDRINT ret)
                 addTaintByte(mmapResult + i, i);
             }
 
-            output << "[TAINT]\t\t\t0x" << mmapSize << " bytes tainted from ";
-            output << hex << "0x" << mmapResult << " to 0x" << mmapResult+mmapSize << " (via mmap2)" << endl;
+            logfile << "[TAINT]\t\t\t0x" << mmapSize << " bytes tainted from ";
+            logfile << hex << "0x" << mmapResult << " to 0x" << mmapResult+mmapSize << " (via mmap2)" << endl;
         }
     }
 }

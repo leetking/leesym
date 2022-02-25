@@ -51,11 +51,11 @@ END_LEGAL */
 
 using namespace std;
 
-ofstream output;
+ofstream logfile;
 
 VOID Fini(INT32 code, VOID *v)
 {
-    output.close();
+    logfile.close();
 }
 
 
@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
     outputFileName = KnobOutputFile.Value();
     logFileName = KnobLogFile.Value();
 
-    output.open(logFileName.c_str());
+    logfile.open(logFileName.c_str());
     trace.open(outputFileName.c_str());
 
     if(!strcmp("stdin_", KnobTargetFile.Value().c_str())){

@@ -47,7 +47,7 @@ void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, 
 }
 
 void traceUnsupport(ADDRINT insAddr, std::string insDis){
-    output << "[Unsupport]" << " insDis: " << insDis << endl;
+    logfile << "[Unsupport]" << " insDis: " << insDis << endl;
 }
 
 VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, UINT32 readSize, ADDRINT memOp2, UINT32 writeSize)
