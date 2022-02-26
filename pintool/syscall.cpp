@@ -167,7 +167,16 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         mmap_info.offset = arg5;
         break;
 
+    // TODO 完成 dup 的模拟
+    case __NR_dup:
+        break;
+    case __NR_dup2:
+        break;
+    case __NR_dup3:
+        break;
+
 #if defined(TARGET_LINUX) && defined(TARGET_IA32)
+    // TODO 完成 mmap2
     case __NR_mmap2:
         break;
 #endif
