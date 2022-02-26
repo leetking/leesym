@@ -1321,11 +1321,6 @@ VOID Instruction(INS ins, VOID *v)
         break;
 
     default:
-        INS_InsertCall(
-                ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-                IARG_ADDRINT, INS_Address(ins),
-                IARG_PTR, new string(INS_Disassemble(ins)),
-                IARG_END);
         break;
     }
 }

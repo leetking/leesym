@@ -48,8 +48,13 @@ struct {
 struct {
     int fd = INVALID_FD;
     ADDRINT addr = 0;
-    ADDRINT size = 0;
+    UINT64  size = 0;
 } read_info;
+
+struct {
+    int fd = INVALID_FD;
+    loff_t* result = 0;
+} lseek_info;
 
 struct {
     int fd = INVALID_FD;
@@ -59,6 +64,13 @@ struct {
     ADDRINT heap_ptr = 0;
     ADDRINT new_heap_ptr = 0;
 } brk_info;
+
+struct {
+    UINT64 len = 0;
+    UINT64 flags = 0;
+    int fd = INVALID_FD;
+    UINT64 offset = 0;
+} mmap_info;
 
 struct {
     ADDRINT start = 0;
@@ -137,41 +149,29 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
 
     case __NR_lseek:
         logfile << hex << "[lseek]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
+        lseek_info.fd = arg0;
         break;
-    } // switch (syscall_number)
 
-    if(num == __NR_lseek) {
-        logfile << hex << "[LSEEK FILE]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
+    // __NR_llseek, PIN 没有提供这个宏
+    case 140:
+        logfile << hex << "[llseek]\t\tfd: " << arg0 << " offseth: " << arg1 << " offsetl: " << arg2 << " result: " << arg3 <<" whence: " << arg4 << endl;
+        lseek_info.fd = arg0;
+        lseek_info.result = (loff_t*)arg3;
+        break;
 
-        if(arg0 == targetFileFd){
-            isLseekCalled = true;
-        }
+    case __NR_mmap:
+        logfile << "[mmap]\t\taddr: " << arg0 << " len: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
+        mmap_info.len = arg1;
+        mmap_info.flags = arg3;
+        mmap_info.fd = arg4;
+        mmap_info.offset = arg5;
+        break;
 
-    // TODO 140 是什么系统调用, llseek, 为何不写 __NR_llseek
-    // TODO 为何要直接写 __NR_lseek 而不是 SYS_lseek 呢
-    } else if(num == 140){
-        logfile << hex << "[LLSEEK FILE]\t\tfd: " << arg0 << " offseth: " << arg1 << " offsetl: " << arg2 << " result: " << arg3 <<" whence: " << arg4 << endl;
-
-        if(arg0 == targetFileFd) {
-            llseekResult = (UINT64*)arg3;
-            isLlseekCalled = true;
-        }
-
-    }
-    // TODO mmap 和 mmap2 的区别
-    else if (num == __NR_mmap){
-        logfile << hex << "[MMAP]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
-    }
 #if defined(TARGET_LINUX) && defined(TARGET_IA32)
-    else if (num == __NR_mmap2){
-        logfile << hex << "[MMAP2]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " pgoffset: " << arg5 << endl;
-        if (arg4 == targetFileFd && arg4 != 0xFFFFFFFF) {
-            isTargetFileMmap2 = true;
-            mmapSize = arg1;
-            isTaintStart = true;
-        }
-    }
+    case __NR_mmap2:
+        break;
 #endif
+    } // switch (syscall_number)
 }
 
 #define syscall_failed(ret) (((ADDRINT)-1) == (ret))
@@ -179,6 +179,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
 VOID SysAfter(ADDRINT ret)
 {
     UINT64 size;
+    ADDRINT addr;
 
     switch (syscall_number) {
     case __NR_brk:
@@ -199,7 +200,7 @@ VOID SysAfter(ADDRINT ret)
         if (syscall_failed(ret))
             break;
         removeTaintBlock(munmap_info.start, munmap_info.length);
-        logfile << hex << "[munmap]\t\tremove from: " << munmap_info.start << " len: " << munmap_info.length << endl;
+        logfile << hex << "[munmap]\tremove from: " << munmap_info.start << " len: " << munmap_info.length << endl;
         munmap_info.start = munmap_info.length = 0;
         break;
 
@@ -217,7 +218,7 @@ VOID SysAfter(ADDRINT ret)
         // 打开目标程序读取的文件
         if (string_equal(open_info.fname, targetFileName.c_str())) {
             if (open_info.flags == O_RDONLY || open_info.flags == O_RDWR) {
-                logfile << "[TAINT] open input file at " << ret << endl;
+                logfile << "[TAINT]\t\topen input file at " << ret << endl;
                 taint.target_fd = ret;
             }
         }
@@ -231,14 +232,14 @@ VOID SysAfter(ADDRINT ret)
         if (read_info.fd != taint.target_fd)
             break;
         if (!taint.started) {
-            logfile << "BEGIN TAINT!!" << endl;
+            logfile << "BEGIN TAINT via read fd " << taint.target_fd << endl;
             taint.started = true;
             isTaintStart = true;
         }
         size = ret;
         for (UINT64 i = 0; i < size; ++i)
             addTaintByte(read_info.addr + i, taint.offset++);
-        logfile << "[TAINT]\t\taddr: " << hex << read_info.addr
+        logfile << "[TAINT]\t\tread addr: " << hex << read_info.addr
             << " size: " << dec << ret
             << " offset: " << taint.offset - size << endl;
         read_info.fd = INVALID_FD;
@@ -256,7 +257,42 @@ VOID SysAfter(ADDRINT ret)
         close_info.fd = INVALID_FD;
         break;
 
+    case __NR_lseek:
+        if (syscall_failed(ret))
+            break;
+        if (taint.target_fd != lseek_info.fd)
+            break;
+        logfile << "[TAINT]\t\tSeek curr to " << ret << endl;
+        taint.offset = ret;
+        break;
+
+    case 140:
+        if (syscall_failed(ret))
+            break;
+        if (taint.started != lseek_info.fd)
+            break;
+        logfile << "[TAINT]\t\tSeek curr to " << ret << endl;
+        taint.offset = *lseek_info.result;
+        break;
+
     case __NR_mmap:
+        if (syscall_failed(ret))
+            break;
+        logfile << "[mmap]\t\treturn addr: " << hex << ret << endl;
+        if (mmap_info.fd != taint.target_fd)
+            break;
+        if (!taint.started) {
+            logfile << "BEGIN TAINT via mmap fd " << taint.target_fd << endl;
+            taint.started = true;
+            isTaintStart = true;
+        }
+        addr = ret;
+        for (UINT64 i = 0; i < mmap_info.len; ++i) {
+            addTaintByte(addr+i, mmap_info.offset+i);
+        }
+        logfile << "[TAINT]\t\tmmap addr: " << hex << addr
+            << " size: " << dec << mmap_info.len
+            << " offset: " << mmap_info.offset << endl;
         break;
 
     case SYSCALL_NONE:
@@ -264,36 +300,6 @@ VOID SysAfter(ADDRINT ret)
         break;
     }
     syscall_number = SYSCALL_NONE;
-
-    if (isLseekCalled == true) {
-        isLseekCalled = false;
-        globalOffset = ret;
-
-        logfile << "[LSEEK] result: " << llseekResult << endl;
-    }
-
-    if(isLlseekCalled == true){
-        isLlseekCalled = false;
-        globalOffset = *llseekResult;
-
-        logfile << "[LLSEEK] result: " << *llseekResult << endl;
-    }
-
-    // mmap2 内存映射方式读取
-    if(isTargetFileMmap2){
-        isTargetFileMmap2 = false;
-
-        if(ret != 0xFFFFFFFF){
-            UINT64 mmapResult = ret;
-
-            for (UINT64 i = 0; i < mmapSize; i++){
-                addTaintByte(mmapResult + i, i);
-            }
-
-            logfile << "[TAINT]\t\t\t0x" << mmapSize << " bytes tainted from ";
-            logfile << hex << "0x" << mmapResult << " to 0x" << mmapResult+mmapSize << " (via mmap2)" << endl;
-        }
-    }
 }
 
 VOID SyscallEntry(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v)
