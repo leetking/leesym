@@ -1,12 +1,14 @@
 #include <list>
 
 #if !defined(TARGET_WINDOWS)
-#include <sys/syscall.h>
+# include <sys/syscall.h>   // import syscall number
+# include <unistd.h>        // import sbrk()
 #endif
 
 #include "syscall.hpp"
 #include "instrument.hpp"
 #include "trace.hpp"
+#include "common.h"
 
 UINT64 globalOffset;
 
@@ -23,11 +25,26 @@ UINT64 taintMemoryStart;
 UINT64 mmapSize;
 UINT64 targetFileFd=0xFFFFFFFF;
 
+
+namespace {
+    enum { SYSCALL_NONE = (unsigned)-1 };
+    unsigned syscall_number = SYSCALL_NONE;
+
+    struct {
+        ADDRINT heap_ptr;
+        ADDRINT new_heap_ptr;
+    } brk_info;
+}
+
 string targetFileName;
 
+/**
+ * num: syscall no
+ */
 VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2, ADDRINT arg3, ADDRINT arg4, ADDRINT arg5)
 {
-#if defined(TARGET_LINUX) && defined(TARGET_IA32) 
+    syscall_number = num;
+#if defined(TARGET_LINUX) && defined(TARGET_IA32)
     // On ia32 Linux, there are only 5 registers for passing system call arguments, 
     // but mmap needs 6. For mmap on ia32, the first argument to the system call 
     // is a pointer to an array of the 6 arguments
@@ -42,20 +59,28 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
     }
 #endif
 
+    switch (syscall_number) {
+    case __NR_brk:
+        // 这里调用 brk 系统调用会导致无限递归
+        brk_info.new_heap_ptr = arg0;
+        //printf("Into __NR_brk %d %p %lx\n", syscall_number, brk_info.new_heap_ptr, arg0);
+        break;
+    }
+
     // read(fd, mem, size)
-    if(num == __NR_read){
+    if(num == __NR_read) {
         logfile << "[READ FILE]\t";
         logfile << hex << "0x" << ip << ":\tfd: " << arg0 << endl;
 
         taintMemoryStart = static_cast<INT64>(arg1);
 
         // 只能处理一个文件：而且只能是目标程序处理的文件
-        if(arg0 == targetFileFd || arg0 == 0){
+        if(arg0 == targetFileFd || arg0 == 0) {
             isTargetFileRead = true;
             isTaintStart = true;
         }
 
-    } else if(num == __NR_open){
+    } else if(num == __NR_open) {
         logfile << "[OPEN FILE]\t";
 
         logfile << hex << "0x" << ip << ":\t" << (char*)arg0 << endl;
@@ -100,35 +125,62 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
             isLlseekCalled = true;
         }
 
+    }
     // TODO mmap 和 mmap2 的区别
-    } else if (num == __NR_mmap){
+    else if (num == __NR_mmap){
         logfile << hex << "[MMAP]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " offset: " << arg5 << endl;
     }
-
 #if defined(TARGET_LINUX) && defined(TARGET_IA32)
     else if (num == __NR_mmap2){
-        output << hex << "[MMAP2]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " pgoffset: " << arg5 << endl;
-        if(arg4 == targetFileFd && arg4 != 0xFFFFFFFF){
+        logfile << hex << "[MMAP2]\t\taddr: " << arg0 << " length: " << arg1 << " prot: " << arg2 << " flags: " << arg3 <<" fd: " << arg4 << " pgoffset: " << arg5 << endl;
+        if (arg4 == targetFileFd && arg4 != 0xFFFFFFFF) {
             isTargetFileMmap2 = true;
             mmapSize = arg1;
             isTaintStart = true;
         }
     }
 #endif
+    else if (num == __NR_munmap) {
+    }
 }
+
+#define syscall_failed(ret) (((ADDRINT)-1) == ret)
 
 VOID SysAfter(ADDRINT ret)
 {
+    switch (syscall_number) {
+    case __NR_brk:
+        //BUG_ON(brk_info.new_heap_ptr == nullptr);
+        // syscall failed
+        if (syscall_failed(ret))
+            break;
+        // 减少内存
+        if (brk_info.new_heap_ptr < brk_info.heap_ptr) {
+            removeTaintBlock(brk_info.new_heap_ptr, brk_info.heap_ptr - brk_info.new_heap_ptr);
+            UINT64 heap_ptr = brk_info.heap_ptr;
+            UINT64 new_heap_ptr = brk_info.new_heap_ptr;
+            logfile << hex << "[brk]\t\tremove from: " << new_heap_ptr << " to: " << heap_ptr << endl;
+        }
+        brk_info.heap_ptr = brk_info.new_heap_ptr;
+        brk_info.new_heap_ptr = 0;
+        break;
+
+    case SYSCALL_NONE:
+        UNREACHABLE();
+        break;
+    }
+    syscall_number = SYSCALL_NONE;
+
     if(isTargetFileOpen && ret >= 0){
         targetFileFd = ret;
         isTargetFileOpen = false;
         globalOffset = 0;
         logfile << "\topen file descriptor " << targetFileFd << endl;
-    } 
+    }
 
     if(isTargetFileRead && ret >= 0){
         isTargetFileRead = false;
-        
+
         UINT64 size = ret;
 
         for (UINT64 i = 0; i < size; i++){
@@ -137,7 +189,7 @@ VOID SysAfter(ADDRINT ret)
 
             globalOffset++;
         }
-          
+
         logfile << "[TAINT]\t\t\t0x" << size << " bytes tainted from ";
         logfile << hex << "0x" << taintMemoryStart << " to 0x" << taintMemoryStart+size;
         logfile << " by file offset 0x" << globalOffset-size << " (via read)" << endl;
