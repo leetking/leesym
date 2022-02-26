@@ -5396,6 +5396,7 @@ static u8 fuzz_one(char** argv) {
       char *intriguer_cmd;
       int ret;
 
+      // 这里没必要替换，run_intriguer.py 中会自动替换为 -i 后的参数 <input-file>
       intriguer_cmd = replace_aa(target_cmdline, fname);
       cmd = alloc_printf("python %s -s 1 -t %d -i %s -o %s -- %s > /dev/null 2> /dev/null",
               intriguer_path, intriguer_timeout, fname, temp_dir, intriguer_cmd);

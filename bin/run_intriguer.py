@@ -107,7 +107,8 @@ def main():
 
     target_arch = check_binary(args.cmd[0])
     if target_arch == -1:
-        return
+        print("ERROR: Target binary isn't executable")
+        return 2
 
     if not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)
