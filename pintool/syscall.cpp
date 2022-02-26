@@ -34,6 +34,11 @@ namespace {
         ADDRINT heap_ptr;
         ADDRINT new_heap_ptr;
     } brk_info;
+
+    struct {
+        ADDRINT start;
+        size_t length;
+    } munmap_info;
 }
 
 string targetFileName;
@@ -64,6 +69,11 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         // 这里调用 brk 系统调用会导致无限递归
         brk_info.new_heap_ptr = arg0;
         //printf("Into __NR_brk %d %p %lx\n", syscall_number, brk_info.new_heap_ptr, arg0);
+        break;
+
+    case __NR_munmap:
+        munmap_info.start = arg0;
+        munmap_info.length = arg1;
         break;
     }
 
@@ -140,8 +150,6 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         }
     }
 #endif
-    else if (num == __NR_munmap) {
-    }
 }
 
 #define syscall_failed(ret) (((ADDRINT)-1) == ret)
@@ -163,6 +171,13 @@ VOID SysAfter(ADDRINT ret)
         }
         brk_info.heap_ptr = brk_info.new_heap_ptr;
         brk_info.new_heap_ptr = 0;
+        break;
+
+    case __NR_munmap:
+        if (syscall_failed(ret))
+            break;
+        removeTaintBlock(munmap_info.start, munmap_info.length);
+        logfile << hex << "[munmap]\t\tremove from: " << munmap_info.start << " len: " << munmap_info.length << endl;
         break;
 
     case SYSCALL_NONE:
