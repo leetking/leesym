@@ -10,22 +10,9 @@
 #include "trace.hpp"
 #include "common.h"
 
-UINT64 globalOffset;
-
-bool isTargetFileOpen=false;
-bool isTargetFileRead=false;
-bool isLseekCalled = false;
-bool isLlseekCalled = false;
-bool isTargetFileMmap2 = false;
 bool isTaintStart = false;
-bool isLibcSO = false;
 
-UINT64* llseekResult;
-UINT64 taintMemoryStart;
-UINT64 mmapSize;
-UINT64 targetFileFd=0xFFFFFFFF;
 string targetFileName;
-
 
 namespace {
 enum {
@@ -317,10 +304,4 @@ VOID SyscallEntry(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOI
 VOID SyscallExit(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v)
 {
     SysAfter(PIN_GetSyscallReturn(ctxt, std));
-}
-
-void doStdin()
-{
-    targetFileFd = 0;
-    globalOffset = 0;
 }

@@ -1,9 +1,12 @@
 #ifndef INTRIGUER_SYSCALL_HPP_
 #define INTRIGUER_SYSCALL_HPP_
 
+#include <fstream>
+#include <iostream>
+
 #include "pin.H"
 
-extern ofstream logfile;
+extern std::ofstream logfile;
 
 // Print syscall number and arguments
 VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2, ADDRINT arg3, ADDRINT arg4, ADDRINT arg5);
@@ -14,7 +17,5 @@ VOID SysAfter(ADDRINT ret);
 VOID SyscallEntry(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v);
 
 VOID SyscallExit(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v);
-
-void doStdin();
 
 #endif
