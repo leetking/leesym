@@ -1,8 +1,29 @@
+#include <cstdio>
+
 #include <iostream>
+
+#include <unistd.h>
 
 #include "analysis.hpp"
 #include "instruction.hpp"
 #include "syscall.hpp"
+
+#define IARG_INSADDR(ins)       IARG_ADDRINT, INS_Address(ins)
+#define IARG_NEXTADDR(ins)      IARG_ADDRINT, INS_Address(ins) + INS_Size(ins)
+#define IARG_DISASM(ins)        IARG_PTR, new std::string(INS_Disassemble(ins))
+#define IARG_REG(ins, opn)      IARG_UINT32, INS_RegR(ins, (opn))
+#define IARG_REGVALUE(ins, opn) IARG_REG_VALUE, INS_RegR(ins, (opn))
+#define IARG_OPWIDTH(ins, opn)  IARG_UINT32, INS_OperandWidth(ins, (opn))/8
+#define IARG_OPIMM(ins, opn)    IARG_UINT64, INS_OperandImmediate(ins, (opn))
+#define IARG_RDMEMSIZE(ins)     IARG_UINT32, INS_MemoryReadSize(ins)
+#define IARG_WRMEMSIZE(ins)     IARG_UINT32, INS_MemoryWriteSize(ins)
+
+#if 0
+static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
+{
+    printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
+}
+#endif
 
 // v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
@@ -28,7 +49,7 @@ VOID Instruction(INS ins, VOID *v)
             IARG_UINT32, INS_OperandCount(ins),
             // 指令操作读内存的地址
             IARG_MEMORYREAD_EA,
-            // 这条指令读取内存的大小, 1, 2, 4 or 8 B, 和指令一致
+            // 这条指令读取内存的大小, 1, 2, 4 or 8 B, 不一定和指令一致
             IARG_UINT32, INS_MemoryReadSize(ins),
             // 指令操作写内存的地址
             IARG_MEMORYWRITE_EA,
@@ -99,21 +120,56 @@ VOID Instruction(INS ins, VOID *v)
         }
         break;
 
+    case XED_ICLASS_JMP:
+        // jmp eax
+        if (INS_OperandIsReg(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpreg,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_REG(ins, OP_0),
+                    IARG_REGVALUE(ins, OP_0),
+                    IARG_OPWIDTH(ins, OP_0),
+                    IARG_END);
+        }
+        // jmp [reg1 + scale * reg2 + disp], 寻址
+        // jmp [base + scale * index + disp]
+        // jmp [rip + disp]
+        else if (INS_OperandIsMemory(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpmem,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_MEMORYREAD_EA,
+                    IARG_MEMORYREAD_EA,
+                    IARG_RDMEMSIZE(ins),
+                    IARG_END);
+        }
+        // jmp 0xdeadbeef, 不可能被污染，不记录
+        //else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
+            //INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+                    //IARG_INSADDR(ins),
+                    //IARG_DISASM(ins),
+                    //IARG_END);
+        //}
+        //else {
+        //    INS_InsertCall(
+        //            ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+        //            IARG_INSADDR(ins),
+        //            IARG_DISASM(ins),
+        //            IARG_END);
+        //}
+        break;
+
     /* TODO */
     case XED_ICLASS_CALL_FAR:
     case XED_ICLASS_CALL_NEAR:
 
-    case XED_ICLASS_JMP:
+    case XED_ICLASS_JB:
+    case XED_ICLASS_JBE:
 
     case XED_ICLASS_LEAVE:
 
     case XED_ICLASS_RET_NEAR:
     case XED_ICLASS_RET_FAR:
-        INS_InsertCall(
-                ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-                IARG_ADDRINT, INS_Address(ins),
-                IARG_PTR, new string(INS_Disassemble(ins)),
-                IARG_END);
         break;
 
     case XED_ICLASS_NOP:

@@ -232,7 +232,8 @@ void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, Re
 }
 
 //trace reg mem SIMD
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MemBlock* map, UINT8* val2, UINT64 size){
+void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MemBlock* map, UINT8* val2, UINT64 size)
+{
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     printTraceLogReg(reg, size);

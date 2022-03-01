@@ -1267,3 +1267,23 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
             printTraceLog(insAddr, insDis, tempReg, val, size);
     }
 }
+
+void trace_jmpreg(ADDRINT addr, string const& disasm, REG reg, ADDRINT toaddr, UINT32 size)
+{
+    Register* r = getTaintRegister(reg);
+    printf("%lx: %s | toaddr: %lx, r: %p\n", addr, disasm.c_str(), toaddr, r);
+    if (r && r->tainted) {
+        printTraceLog(addr, disasm, r, toaddr, size);
+    }
+}
+
+void trace_jmpmem(ADDRINT addr, string const& disasm, ADDRINT regval, ADDRINT toaddr, UINT32 size)
+{
+    printf("%lx: %s | regval: %lx, toaddr: %lx (%lx), size: %d\n", addr, disasm.c_str(), regval, toaddr, (*(UINT64*)toaddr), size);
+    MemBlock block;
+    initMemTaint(&block, regval, size);
+    if (block.tainted) {
+        printTraceLog(addr, disasm, &block, (UINT8*)&toaddr, size);
+        printTraceLog(addr, disasm, &block, (UINT8*)toaddr, size);
+    }
+}

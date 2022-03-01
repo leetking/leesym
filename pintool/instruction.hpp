@@ -3,6 +3,8 @@
 
 #include "pin.H"
 
+extern ofstream logfile;
+
 VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, UINT32 readSize, ADDRINT memOp2, UINT32 writeSize);
 VOID taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, REG reg2, ADDRINT val, UINT32 size);
 VOID taintRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, UINT32 size);
@@ -53,6 +55,7 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
 
 VOID traceUnsupport(ADDRINT insAddr, std::string insDis);
 
-extern ofstream logfile;
+void trace_jmpreg(ADDRINT addr, std::string const& disasm, REG reg, ADDRINT toaddr, UINT32 size);
+void trace_jmpmem(ADDRINT addr, std::string const& disasm, ADDRINT regval, ADDRINT toaddr, UINT32 size);
 
 #endif
