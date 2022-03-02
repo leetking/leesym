@@ -5,6 +5,8 @@
 ##############################################################
 
 # If the tool is built out of the kit, PIN_ROOT must be specified in the make invocation and point to the kit root.
+CFLAGS += -DDEBUG
+CXXFLAGS += -DDEBUG
 PIN_ROOT ?= $(PWD)/../pin-3.7
 
 ifdef PIN_ROOT

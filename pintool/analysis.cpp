@@ -25,6 +25,12 @@ static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcn
 {
     printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
 }
+    INS_InsertCall(
+            ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+            IARG_INSADDR(ins),
+            IARG_DISASM(ins),
+            IARG_UINT32, INS_OperandCount(ins),
+            IARG_END);
 #endif
 
 // v 是用户自行传入的数据，这里没有使用
@@ -136,11 +142,7 @@ VOID Instruction(INS ins, VOID *v)
         // jmp [reg1 + scale * reg2 + disp], 寻址
         // jmp [base + scale * index + disp]
         // jmp [rip + disp]
-        else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
-            printf("jmp address generatro\n");
-        }
         else if (INS_OperandIsMemory(ins, OP_0)) {
-            printf("jmp address memory\n");
             INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpmem,
                     IARG_INSADDR(ins),
                     IARG_DISASM(ins),
@@ -150,6 +152,9 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_RDMEMSIZE(ins),
                     IARG_END);
         }
+        // 不同于 lea eax, [ebx+4*ecx+0x42] 这是 Addr Gen, jmp 的为内存操作数
+        //else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
+        //}
         // jmp 0xdeadbeef, 不可能被污染，不记录
         //else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
             //INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,

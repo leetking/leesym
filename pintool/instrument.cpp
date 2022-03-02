@@ -90,55 +90,81 @@ static
 REG get_reg_inner_name(REG reg)
 {
     switch (reg) {
-#ifdef TARGET_IA32E
-    case REG_RAX: return reg;
-    case REG_RBX: return reg;
-    case REG_RCX: return reg;
-    case REG_RDX: return reg;
-    case REG_RDI: return reg;
-    case REG_RSI: return reg;
-    case REG_RBP: return reg;
-#endif // TARGET_IA32E
-
-    case REG_EAX:   // 4
-    case REG_AX:    // 2
-    case REG_AH:    // upper 1
     case REG_AL:    // lower 1
+    case REG_AH:    // upper 1
+    case REG_AX:    // 2
+    case REG_EAX:   // 4
+#ifdef TARGET_IA32E
+    case REG_RAX:   // 8
+        return REG_RAX;
+#else
         return REG_EAX;
+#endif
 
-    case REG_EBX:
-    case REG_BX:
-    case REG_BH:    // upper 1
     case REG_BL:    // lower 1
+    case REG_BH:    // upper 1
+    case REG_BX:
+    case REG_EBX:
+#ifdef TARGET_IA32E
+    case REG_RBX:
+        return REG_RBX;
+#else
         return REG_EBX;
+#endif
 
-    case REG_ECX:
-    case REG_CX:
-    case REG_CH:
     case REG_CL:
+    case REG_CH:
+    case REG_CX:
+    case REG_ECX:
+#ifdef TARGET_IA32E
+    case REG_RCX:
+        return REG_RCX;
+#else
         return REG_ECX;
+#endif
 
-    case REG_EDX:
-    case REG_DX:
-    case REG_DH:
     case REG_DL:
+    case REG_DH:
+    case REG_DX:
+    case REG_EDX:
+#ifdef TARGET_IA32E
+    case REG_RDX:
+        return REG_RDX;
+#else
         return REG_EDX;
+#endif
 
-    case REG_EDI:
-    case REG_DI:
 #ifdef TARGET_IA32E
     case REG_DIL:
 #endif // TARGET_IA32E
+    case REG_DI:
+    case REG_EDI:
+#ifdef TARGET_IA32E
+    case REG_RDI:
+        return REG_RDI;
+#else
         return REG_EDI;
+#endif
 
-    case REG_ESI:
-    case REG_SI:
 #ifdef TARGET_IA32E
     case REG_SIL:
-#endif // TARGET_IA32E
+#endif
+    case REG_SI:
+    case REG_ESI:
+#ifdef TARGET_IA32E
+    case REG_RSI:
+        return REG_RSI;
+#else
         return REG_ESI;
+#endif
 
-    case REG_EBP: return reg;
+    case REG_EBP:
+#ifdef TARGET_IA32E
+    case REG_RBP:
+        return REG_RBP;
+#else
+        return REG_EBP;
+#endif
 
 #ifdef TARGET_IA32E
     case REG_R8:

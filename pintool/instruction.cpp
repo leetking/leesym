@@ -91,8 +91,7 @@ void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG src, REG ds
 
     if (src == dst) {
 #ifdef DEBUG
-        if (isRegisterTainted(src))
-            tracelog_regreg(insAddr, insDis, src, 0xcccc, dst, val, size);
+        tracelog_regreg(insAddr, insDis, src, 0xcccc, dst, val, size);
 #endif
         return;
     }
@@ -278,9 +277,9 @@ VOID taintLEA(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 si
  * idx: ebx
  * dst: ecx
  */
-VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG idx, UINT32 size)
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx, REG dst, REG base, REG idx, UINT32 size)
 {
-    BUG_ON(size > REG_Size(dst));
+    BUG_ON(size > REGISTER_WIDTH);
     // idx 优先级大于 base, idx 更有价值
     if (REG_valid(idx) && REG_valid(base)) {
         UINT64 offsets[REGISTER_WIDTH];
@@ -306,9 +305,8 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG id
     if (REG_valid(idx)) {
         UINT64 const* offset = getRegisterOffset(idx);
         if (isRegisterTainted(idx)) {
-#ifdef DEBUG
+            printf("%lx: %s idx is tainted: %d\n", addr, disasm.c_str(), isRegisterTainted(idx));
             tracelog_regreg(addr, disasm, dst, 0xcccc, idx, 0xcccc, size);
-#endif
             taintRegister(dst, offset, size);
         }
         return;
@@ -615,6 +613,8 @@ void copy_offset(UINT64* dst, UINT64 const* src, UINT32 size)
 static
 void shl_reg(REG reg, UINT32 shift, UINT32 size)
 {
+    BUG_ON(size == 0);
+    BUG_ON(size > REGISTER_WIDTH);
     BUG_ON(!isRegisterTainted(reg));
     // 按照字节的移位
     UINT64 offset[REGISTER_WIDTH];
@@ -623,9 +623,9 @@ void shl_reg(REG reg, UINT32 shift, UINT32 size)
 
     shift = (shift/8) + ((shift%8) >= 4);
     shift = min(size, shift);
-    for (UINT32 i = size-1; i >= shift; --i)
+    for (INT32 i = size-1; i >= (INT32)shift; --i)
         offset[i] = offset[i - shift];
-    for (UINT32 i = shift-1; i >= 0; --i)
+    for (INT32 i = shift-1; i >= 0; --i)
         offset[i] = INVALID_OFFSET;
     taintRegister(reg, offset, size);
 }
@@ -633,13 +633,15 @@ void shl_reg(REG reg, UINT32 shift, UINT32 size)
 static
 void shl_mem(ADDRINT addr, MemBlock* mem, UINT32 shift, UINT32 size)
 {
+    BUG_ON(size == 0);
+    BUG_ON(size > REGISTER_WIDTH);
     // 按照字节的移位
     UINT64* offset = mem->offset;
     shift = (shift/8) + ((shift%8) >= 4);
     shift = min(size, shift);
-    for (UINT32 i = size-1; i >= shift; --i)
+    for (INT32 i = size-1; i >= (INT32)shift; --i)
         offset[i] = offset[i - shift];
-    for (UINT32 i = shift-1; i >= 0; --i)
+    for (INT32 i = shift-1; i >= 0; --i)
         offset[i] = INVALID_OFFSET;
     addTaintBlock(addr, offset, size);
 }
@@ -1054,8 +1056,6 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT
  */
 void trace_jmpreg(ADDRINT addr, string const& disasm, REG reg, ADDRINT toaddr, UINT32 size)
 {
-    Register* r = getTaintRegister(reg);
-    printf("%lx: %s | toaddr: %lx, r: %p\n", addr, disasm.c_str(), toaddr, r);
     if (isRegisterTainted(reg)) {
         tracelog_reg(addr, disasm, reg, toaddr, size);
     }
@@ -1066,15 +1066,12 @@ void trace_jmpreg(ADDRINT addr, string const& disasm, REG reg, ADDRINT toaddr, U
  */
 void trace_jmpmem(ADDRINT addr, string const& disasm, ADDRINT toaddr, REG base, REG idx, UINT32 size)
 {
-    printf("%lx: %s | toaddr: %lx, size: %d\n", addr, disasm.c_str(), toaddr, size);
     if (REG_valid(base) && isRegisterTainted(base)) {
-        printf("base reg is tainted\n");
         tracelog_reg(addr, disasm, base, 0xcccc, size);
         return;
     }
 
     if (REG_valid(idx) && isRegisterTainted(idx)) {
-        printf("idx reg is tainted\n");
         tracelog_reg(addr, disasm, idx, 0xcccc, size);
         return;
     }
