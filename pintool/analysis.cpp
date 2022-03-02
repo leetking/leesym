@@ -20,10 +20,12 @@
 #define IARG_BASEREG(ins, opn)  IARG_UINT32, INS_OperandMemoryBaseReg(ins, (opn))
 #define IARG_INDEXREG(ins, opn) IARG_UINT32, INS_OperandMemoryIndexReg(ins, (opn))
 
+#if 0
 static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
 {
     printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
 }
+#endif
 
 // v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
@@ -32,12 +34,6 @@ VOID Instruction(INS ins, VOID *v)
         return;
 
     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
-
-    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
-            IARG_INSADDR(ins),
-            IARG_DISASM(ins),
-            IARG_UINT32, INS_OperandCount(ins),
-            IARG_END);
 
     switch (ins_indx) {
     // 复制 DS:SI -> ES:DI

@@ -48,7 +48,7 @@ public:
 struct MemBlock {
     UINT64 address;
     UINT64 tainted;
-    UINT64 offset[32];
+    UINT64 offset[REGISTER_WIDTH];
 };
 
 struct Byte {

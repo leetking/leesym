@@ -132,6 +132,8 @@ VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
 VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, UINT32 size)
 {
     BUG_ON(size > REG_Size(reg));
+    BUG_ON(size > REGISTER_WIDTH);
+
     UINT64 offset[REGISTER_WIDTH];
     Byte* b;
     for (UINT64 i = 0; i < size; ++i) {
@@ -355,6 +357,7 @@ VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADD
 
 VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size)
 {
+    BUG_ON(size > REGISTER_WIDTH);
     BUG_ON(size > REG_Size(reg));
 
     MemBlock mem;
@@ -385,6 +388,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
 VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
     BUG_ON(size > REG_Size(reg));
+    BUG_ON(size > REGISTER_WIDTH);
 
     MemBlock mem;
     initMemTaint(&mem, addr, size);
@@ -524,7 +528,6 @@ VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, A
 VOID traceArithMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
     BUG_ON(size > REGISTER_WIDTH);
-    printf("%lx: %s, size: %d, imm: %lx, addr: %lx\n", insAddr, insDis.c_str(), size, imm, addr);
 
     MemBlock map;
     initMemTaint(&map, addr, size);
