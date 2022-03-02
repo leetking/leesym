@@ -299,10 +299,6 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
 
     BUG_ON(!IS_POWER_OF2(scale));
     BUG_ON(size > REGISTER_WIDTH);
-    //BUG_ON(result != (bval + scale * ival + disp));
-    printf("%lx: %s, result: %lx, bval: %lx, scale: %d, ival: %lx disp: %lx\n",
-            addr, disasm.c_str(), (bval + scale * ival + disp),
-            bval, scale, ival, disp);
 
     // idx 优先级大于 base, idx 更有价值
     if (REG_valid(idx)) {
@@ -1082,12 +1078,6 @@ void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx, ADDRINT resu
     if (REG_valid(idx))
         ival = get_reg_value(ctx, idx);
 
-    printf("%lx: %s, result: %lx, bval: %lx, scale: %u, ival: %lx, disp: %lx\n",
-            addr, disasm.c_str(),
-            result, bval, scale, ival, disp);
-    printf("rip: %lx\n", get_reg_value(ctx, REG_RIP));
-    printf("sum: %lx\n", bval + scale * ival + disp);
-    printf("mem: %lx\n", *(UINT64*)result);
     BUG_ON(!IS_POWER_OF2(scale));
     BUG_ON(result != (bval + scale * ival + disp));
 
