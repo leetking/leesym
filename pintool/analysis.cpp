@@ -17,13 +17,13 @@
 #define IARG_OPIMM(ins, opn)    IARG_UINT64, INS_OperandImmediate(ins, (opn))
 #define IARG_RDMEMSIZE(ins)     IARG_UINT32, INS_MemoryReadSize(ins)
 #define IARG_WRMEMSIZE(ins)     IARG_UINT32, INS_MemoryWriteSize(ins)
+#define IARG_BASEREG(ins, opn)  IARG_UINT32, INS_OperandMemoryBaseReg(ins, (opn))
+#define IARG_INDEXREG(ins, opn) IARG_UINT32, INS_OperandMemoryIndexReg(ins, (opn))
 
-#if 0
 static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
 {
     printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
 }
-#endif
 
 // v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
@@ -32,6 +32,12 @@ VOID Instruction(INS ins, VOID *v)
         return;
 
     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
+
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+            IARG_INSADDR(ins),
+            IARG_DISASM(ins),
+            IARG_UINT32, INS_OperandCount(ins),
+            IARG_END);
 
     switch (ins_indx) {
     // 复制 DS:SI -> ES:DI
@@ -134,12 +140,17 @@ VOID Instruction(INS ins, VOID *v)
         // jmp [reg1 + scale * reg2 + disp], 寻址
         // jmp [base + scale * index + disp]
         // jmp [rip + disp]
+        else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
+            printf("jmp address generatro\n");
+        }
         else if (INS_OperandIsMemory(ins, OP_0)) {
+            printf("jmp address memory\n");
             INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpmem,
                     IARG_INSADDR(ins),
                     IARG_DISASM(ins),
                     IARG_MEMORYREAD_EA,
-                    IARG_MEMORYREAD_EA,
+                    IARG_BASEREG(ins, OP_0),
+                    IARG_INDEXREG(ins, OP_0),
                     IARG_RDMEMSIZE(ins),
                     IARG_END);
         }
@@ -325,7 +336,7 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_RegR(ins, OP_1),
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                     IARG_END);
-            } 
+            }
             else{
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
@@ -333,8 +344,8 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_END);
             }
-        } 
-        else {            
+        }
+        else {
             // pcmpeq reg, mem
             if(INS_OperandIsReg(ins, OP_0)){
                 INS_InsertCall(
@@ -1328,14 +1339,26 @@ VOID Instruction(INS ins, VOID *v)
     /* just untaint register */
     /* TODO */
     case XED_ICLASS_LEA:
-        INS_InsertPredicatedCall(
-            ins, IPOINT_BEFORE, (AFUNPTR)taintLEA,
-            IARG_ADDRINT, INS_Address(ins),
-            IARG_PTR, new string(INS_Disassemble(ins)),
-            IARG_UINT32, INS_OperandCount(ins),
-            IARG_UINT32, INS_RegW(ins, OP_0),
-            IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
-            IARG_END);
+        if (INS_OperandCount(ins) >= 2 && INS_OperandIsAddressGenerator(ins, OP_1)) {
+            INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)taint_lea_mem,
+                    IARG_ADDRINT, INS_Address(ins),
+                    IARG_PTR, new string(INS_Disassemble(ins)),
+                    IARG_UINT32, INS_RegW(ins, OP_0),
+                    IARG_UINT32, INS_OperandMemoryBaseReg(ins, OP_1),
+                    IARG_UINT32, INS_OperandMemoryIndexReg(ins, OP_1),
+                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
+                    IARG_END);
+        } else {
+            INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)taintLEA,
+                    IARG_ADDRINT, INS_Address(ins),
+                    IARG_PTR, new string(INS_Disassemble(ins)),
+                    IARG_UINT32, INS_OperandCount(ins),
+                    IARG_UINT32, INS_RegW(ins, OP_0),
+                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
+                    IARG_END);
+        }
 
         break;
 

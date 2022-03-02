@@ -1,39 +1,21 @@
 #ifndef INTRIGUER_TRACE_HPP_
 #define INTRIGUER_TRACE_HPP_
 
-#include <list>
-#include <fstream>
+#include <string>
 
 #include "pin.H"
-#include "instrument.hpp"
 
-void printTraceLogReg(Register* reg, UINT64 size);
-void printTraceLogMem(MemBlock* map, UINT64 size);
-//print value
-void printTraceLogVal(UINT8* val, UINT64 size);
-//trace reg
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, UINT64 size);
-//trace reg imm
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, UINT64 imm, UINT64 size);
-//trace reg reg
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, Register* reg2, UINT64 val2, UINT64 size);
-//trace reg reg imm
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, Register* reg2, UINT64 val2, UINT64 imm, UINT64 size);
-//trace reg mem imm
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val, MemBlock* map, UINT8* val2, UINT64 imm, UINT64 size);
-//trace reg mem
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT64 val1, MemBlock* map, UINT8* val2, UINT64 size);
-//trace mem reg
-void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val1, Register* reg, UINT64 val2, UINT64 size);
-//trace mem mem
-void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map1, UINT8* val1, MemBlock* map2, UINT8* val2, UINT64 size);
-//trace mem
-void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val,UINT64 size);
-//trace mem imm
-void printTraceLog(UINT64 insAddr, string insDis, MemBlock* map, UINT8* val1, UINT64 val2, UINT64 size);
-//trace reg reg SIMD
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, Register* reg2, UINT8* val2, UINT64 size);
-//trace reg mem SIMD
-void printTraceLog(UINT64 insAddr, string insDis, Register* reg, UINT8* val1, MemBlock* map, UINT8* val2, UINT64 size);
+// TODO 支持 128, 256 bits 寄存器的值
+void tracelog_reg(UINT64 insAddr, std::string const& insDis, REG reg, UINT64 val, UINT64 size);
+void tracelog_regimm(UINT64 insAddr, std::string const& insDis, REG reg, UINT64 val, UINT64 imm, UINT64 size);
+void tracelog_regreg(UINT64 insAddr, std::string const& insDis, REG reg1, UINT64 val1, REG reg2, UINT64 val2, UINT64 size);
+void tracelog_regregimm(UINT64 insAddr, std::string const& insDis, REG reg1, UINT64 val1, REG reg2, UINT64 val2, UINT64 imm, UINT64 size);
+void tracelog_regmem(UINT64 insAddr, std::string const& insDis, REG reg, UINT64 val1, ADDRINT addr, INT64 val2, UINT64 size);
+void tracelog_regmemimm(UINT64 insAddr, std::string const& insDis, REG reg, UINT64 val1, ADDRINT addr, UINT64 val2, UINT64 imm, UINT64 size);
+void tracelog_mem(UINT64 insAddr, std::string const& insDis, ADDRINT addr, INT64 val,UINT64 size);
+void tracelog_memimm(UINT64 insAddr, std::string const& insDis, ADDRINT addr, INT64 val, UINT64 imm, UINT64 size);
+void tracelog_memreg(UINT64 insAddr, std::string const& insDis, ADDRINT addr, INT64 val1, REG reg, UINT64 val2, UINT64 size);
+void tracelog_memmem(UINT64 insAddr, std::string const& insDis, ADDRINT addr1, INT64 val1, ADDRINT addr2, INT64 val2, UINT64 size);
+void tracelog_memmem_addr(UINT64 insAddr, std::string const& insDis, ADDRINT addr1, ADDRINT addr2, UINT32 size);
 
 #endif

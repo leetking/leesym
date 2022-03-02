@@ -14,6 +14,7 @@ enum {
     REG_SIZE_8 = 8,
     REG_SIZE_16 = 16,
     REG_SIZE_32 = 32,
+    REG_SIZE_64 = 64,
 };
 
 enum {
@@ -33,26 +34,15 @@ enum {
 
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
+public:
+    Register(REG reg);
+    Register(REG reg, UINT64 const* offs, UINT32 size);
+
     REG reg;
     UINT64 tainted;
     UINT64 direct_bits;     // 是否是直接来自输入
     UINT64 offset[REGISTER_WIDTH];
 
-    Register():
-        Register(REGISTER_INVALID, 0x0, nullptr) {
-    }
-
-    Register(REG r, UINT64 bits, UINT64 offs[])
-        : reg(r), tainted(bits), direct_bits(~(UINT64)0x0) {
-        for (UINT64 i = 0; i < REGISTER_WIDTH; ++i)
-            offset[i] = INVALID_OFFSET;
-        if (offs) {
-            for (UINT64 i = 0; i < REGISTER_WIDTH && bits; ++i, bits >>= 1) {
-                if (bits & 0x1)
-                    offset[i] = offs[i];
-            }
-        }
-    }
 };
 
 struct MemBlock {
@@ -100,18 +90,24 @@ struct Page {
     // TODO Add deconstructor for Page
 };
 
-Byte* getTaintByte(UINT64 address);
 bool isByteTainted(UINT64 address);
 void addTaintByte(UINT64 address, UINT64 offset);
-void addTaintBlock(UINT64 address, UINT64 size, UINT64 bitmap, UINT64 offset[]);
 void removeTaintByte(UINT64 address);
-void removeTaintBlock(UINT64 address, UINT64 size);
+bool isBlockTainted(UINT64 addr, UINT32 size);
+void addTaintBlock(UINT64 address, UINT64 const* offset, UINT32 size);
+void removeTaintBlock(UINT64 address, UINT32 size);
+// TODO remove below interfaces
+Byte* getTaintByte(UINT64 address);
 
-Register* getTaintRegister(REG reg);
-bool isRegisterOffsetTainted(REG reg, UINT8 offset);
+bool isRegisterOffsetTainted(REG reg, UINT32 offset);
+void taintRegisterOffset(REG reg, UINT32 offset, UINT64 val);
+UINT64 getRegisterOffset(REG reg, UINT32 offset);
+void clearRegisterOffset(REG reg, UINT32 offset);
 bool isRegisterTainted(REG reg);
-void addTaintRegister(REG reg, UINT64 size, UINT64 bitmap, UINT64 offset[]);
-bool taintReg(REG reg, UINT64 bitmap, UINT64 offset[]);
-bool removeTaintRegister(REG reg);
+void taintRegister(REG reg, UINT64 const* offset, UINT32 size);
+UINT64 const* getRegisterOffset(REG reg);
+void clearRegister(REG reg, UINT32 size);
+// TODO remove below interfaces
+Register* getTaintRegister(REG reg);
 
 #endif

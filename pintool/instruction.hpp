@@ -56,6 +56,8 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
 VOID traceUnsupport(ADDRINT insAddr, std::string insDis);
 
 void trace_jmpreg(ADDRINT addr, std::string const& disasm, REG reg, ADDRINT toaddr, UINT32 size);
-void trace_jmpmem(ADDRINT addr, std::string const& disasm, ADDRINT regval, ADDRINT toaddr, UINT32 size);
+void trace_jmpmem(ADDRINT addr, std::string const& disasm, ADDRINT toaddr, REG base, REG idx, UINT32 size);
+
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG idx, UINT32 size);
 
 #endif

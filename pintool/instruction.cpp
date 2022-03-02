@@ -1,49 +1,53 @@
 #include <iostream>
 #include <list>
+#include <string>
+#include <algorithm>
 
 #include "instruction.hpp"
 #include "instrument.hpp"
 #include "trace.hpp"
+#include "common.h" // import BUG_ON
 
-void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size){
-    map->tainted = 0;
+using namespace std;
 
-    for(UINT64 i = 0; i < 32; i++){
-        map->offset[i] = -1;
+static inline
+UINT64 read_uint(UINT8 const* addr, UINT32 size)
+{
+    BUG_ON(!IS_POWER_OF2(size));
+    switch (size) {
+    case 1: return *addr;
+    case 2: return *(UINT16 const*)addr;
+    case 4: return *(UINT32 const*)addr;
+    case 8: return *(UINT64 const*)addr;
+    default:
+            printf("%p: size: %d\n", addr, size);
+            UNREACHABLE(); // Not supoort now
     }
+}
 
-    for(UINT64 i = 0; i < size; i++){
-        Byte* tempMem;
+void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size)
+{
+    BUG_ON(!map);
+    BUG_ON(!IS_ERG_SIZE(size));
 
-        if((tempMem = getTaintByte(addr + i))){
+    map->tainted = 0x0;
+
+    for (UINT32 i = 0; i < REGISTER_WIDTH; ++i)
+        map->offset[i] = INVALID_OFFSET;
+
+    for (UINT32 i = 0; i < size; i++){
+        Byte* b = getTaintByte(addr + i);
+        if (b) {
             set_bitmap(map->tainted, i);
-            map->offset[i] = tempMem->offset;
+            map->offset[i] = b->offset;
         }
     }
 }
 
-void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, UINT32 size, UINT32 count){
-    map1->tainted = 0;
-    map2->tainted = 0;
-
-    for(UINT64 i = 0; i < 32; i++){
-        map1->offset[i] = -1;
-        map2->offset[i] = -1;
-    }
-
-    for(UINT64 i = 0; i < size*count; i++){
-        Byte* tempMem;
-
-        if((tempMem = getTaintByte(addr1+i))){
-            set_bitmap(map1->tainted, i);
-            map1->offset[i] = tempMem->offset;
-        }
-
-        if((tempMem = getTaintByte(addr2+i))){
-            set_bitmap(map2->tainted, i);
-            map2->offset[i] = tempMem->offset;
-        }    
-    }
+void initMemTaint(MemBlock* map1, ADDRINT addr1, MemBlock* map2, ADDRINT addr2, UINT32 size, UINT32 count)
+{
+    initMemTaint(map1, addr1, size * count);
+    initMemTaint(map1, addr1, size * count);
 }
 
 void traceUnsupport(ADDRINT insAddr, std::string insDis){
@@ -69,155 +73,111 @@ VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, U
         // if read mem tainted -> taint write mem
         if(isReadMemTainted){
             addTaintByte(writeAddr+i, tempMem->offset);
-        } 
+        }
         // if read mem not tainted && write mem tainted -> free memory
         else if(isWriteMemTainted){
             removeTaintByte(writeAddr+i);
-        } 
+        }
         // if read mem not tainted && write mem not tainted -> do nothing
         else {
         }
     }
 }
 
-void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, REG reg2, ADDRINT val, UINT32 size)
+void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG src, REG dst, ADDRINT val, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg1 = getTaintRegister(reg1);
+    // TODO 处理 mov eax, eav 这类会符号扩展到 rax 高位的情况
+    BUG_ON(size > REG_Size(dst));
 
-        taintReg(reg2, tempReg1->tainted, tempReg1->offset);
-        
-        // printTraceLog(insAddr, insDis, tempReg1, val, size);
-    } 
-    // read reg not tainted
-    else {
-        // write reg tainted -> remove taint
-        if(isRegisterTainted(reg2)){
-            removeTaintRegister(reg2);
-        } 
-        // write reg not tainted -> do nothing
-        else{
-        }
+    if (src == dst) {
+#ifdef DEBUG
+        if (isRegisterTainted(src))
+            tracelog_regreg(insAddr, insDis, src, 0xcccc, dst, val, size);
+#endif
+        return;
     }
+
+    if (isRegisterTainted(src))
+        taintRegister(dst, getRegisterOffset(src), size);
 }
 
-VOID taintRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, UINT32 size)
+VOID taintRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        // REG_TAINT* tempReg = getTaintRegister(reg1);
-
-        // if(tempReg->bitmap != 0){
-        //      printTraceLog(insAddr, insDis, tempReg, size);
-        // }
-
-        removeTaintRegister(reg1);
-    } 
+    BUG_ON(size > REG_Size(reg));
+#ifdef DEBUG
+    if (isRegisterTainted(reg))
+        tracelog_regimm(insAddr, insDis, reg, 0xcccc, 0xcccc, size);
+#endif
+    clearRegister(reg, size);
 }
 
-VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
+VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    BUG_ON(size > REG_Size(reg));
 
-        for(UINT64 i = 0; i < size; i++){
-            //taint mem if reg offset tainted
-            if (get_bitmap(tempReg->tainted, i)) {
-                if(isByteTainted(addr+i)){
-                    removeTaintByte(addr+i);
-                }
-
-                addTaintByte(addr+i, tempReg->offset[i]);
-            }
-            //remove mem taint if reg offset is not taint
-            else{
-                if(isByteTainted(addr+i)){
-                    removeTaintByte(addr+i);
-                }
-            }
-        }
-
-        // if(tempReg->bitmap != 0){
-        //     printTraceLog(insAddr, insDis, tempReg, val, size);
-        // }
-    } 
-    else {
-        for(UINT64 i = 0; i < size; i++){
-            if(isByteTainted(addr+i)){
-                removeTaintByte(addr+i);
-            }
-        }
+    if (!isRegisterTainted(reg)) {
+        for (UINT32 i = 0; i < size; ++i)
+            removeTaintByte(addr + i);
     }
-}
 
-VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, UINT32 size)
+    UINT64 const* offset = getRegisterOffset(reg);
+    for (UINT32 i = 0; i < size; ++i) {
+        if (isRegisterOffsetTainted(reg, i))
+            addTaintByte(addr + i, offset[i]);
+        else
+            removeTaintByte(addr + i);
+    }
+ }
+
+VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, UINT32 size)
 {
-    UINT64 offset[32];
-
-    for(UINT64 i=0; i < 32; i++) offset[i] = -1;
-
-    UINT64 bitmap = 0;
-
-    for (UINT64 i = 0; i < size; i++){
-        
-        // mem tainted && reg offset not tainted -> taint reg offset
-        if(isByteTainted(addr+i)){
-            Byte* tempMem = getTaintByte(addr + i);
-
-            set_bitmap(bitmap, i);
-            offset[i] = tempMem->offset;
-        } 
-
+    BUG_ON(size > REG_Size(reg));
+    UINT64 offset[REGISTER_WIDTH];
+    Byte* b;
+    for (UINT64 i = 0; i < size; ++i) {
+        offset[i] = INVALID_OFFSET;
+        b = getTaintByte(addr + i);
+        if (b)
+            offset[i] = b->offset;
     }
-
-    if(bitmap != 0){
-        taintReg(reg1, bitmap, offset);
-
-        // REG_TAINT* tempReg = getTaintRegister(reg1);
-        // printTraceLog(insAddr, insDis, tempReg, 0x0, size);
-    } else {
-        if(isRegisterTainted(reg1)){
-            removeTaintRegister(reg1);
-        }
-    }
+    taintRegister(reg, offset, size);
 }
 
 VOID taintMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(!IS_POWER_OF2(size));
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
-    
-    // if(map.bitmap != 0){
-    //     printTraceLog(insAddr, insDis, &map,size);
-    // }
-
-    for(UINT64 i = 0; i < size; i++){
-        if(isByteTainted(addr+i)){
-            removeTaintByte(addr+i);
-        }
+#ifdef DEBUG
+    MemBlock block;
+    initMemTaint(&block, addr, size);
+    if (block.tainted) {
+        UINT64 memval = read_uint((UINT8*)addr, size);
+        tracelog_memimm(insAddr, insDis, addr, memval, 0xcccc, size);
     }
+#endif
+
+    for (UINT32 i = 0; i < size; i++)
+        removeTaintByte(addr+i);
 }
 
-/* [TODO] */
 VOID taintMemMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT readAddr, UINT32 readSize, ADDRINT writeAddr, UINT32 writeSize)
 {
-    for (UINT64 i = 0; i < writeSize; i++){
+    BUG_ON(readSize != writeSize);
 
-        bool isReadMemTainted = isByteTainted(readAddr+i);
-        bool isWriteMemTainted = isByteTainted(writeAddr+i);
+    // TODO 处理内存区间重叠的情况
+    BUG_ON(readAddr < writeAddr && writeAddr < readAddr + readSize);
 
-        Byte* tempMem = getTaintByte(readAddr + i);
+    if (readAddr == writeAddr)
+        return;
 
-        // if read mem tainted -> taint write mem
-        if(isReadMemTainted){
-            addTaintByte(writeAddr+i, tempMem->offset);
-        } 
-        // if read mem not tainted && write mem tainted -> free memory
-        else if(isWriteMemTainted){
-            removeTaintByte(writeAddr+i);
-        } 
-        // if read mem not tainted && write mem not tainted -> do nothing
-        else {
+    Byte* src;
+    for (UINT32 i = 0; i < writeSize; i++){
+        src = getTaintByte(readAddr + i);
+        if (src) {
+            addTaintByte(writeAddr + i, src->offset);
+        } else {
+            removeTaintByte(writeAddr + i);
         }
     }
 }
@@ -227,47 +187,43 @@ void taintSTOS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp, UI
     REG reg;
     UINT64 addr = memOp;
 
-    switch(writeSize){
-        #if defined(TARGET_IA32E)
-        case REG_SIZE_8:
-            reg = REG_RAX;
-            break;
-        #endif
-        case REG_SIZE_4:
-            reg = REG_EAX;
-            break;
-        case REG_SIZE_2:
-            reg = REG_AX;
-            break;
-        case REG_SIZE_1:
-            reg = REG_AL;
-            break;
-        default:
-            //error
-            return;
+    switch (writeSize) {
+#if defined(TARGET_IA32E)
+    case REG_SIZE_8:
+        reg = REG_RAX;
+        break;
+#endif
+    case REG_SIZE_4:
+        reg = REG_EAX;
+        break;
+    case REG_SIZE_2:
+        reg = REG_AX;
+        break;
+    case REG_SIZE_1:
+        reg = REG_AL;
+        break;
+    default:
+        UNREACHABLE(); // error
     }
 
-    Register* tempReg = getTaintRegister(reg);
-
+    UINT64 const* offset = getRegisterOffset(reg);
     for (UINT64 i = 0; i < writeSize; i++){
-        UINT64 regOffset = i;
-
         bool isMemTainted = isByteTainted(addr+i);
-        bool isRegOffsetTainted = isRegisterOffsetTainted(reg, regOffset);
+        bool isRegOffsetTainted = isRegisterOffsetTainted(reg, i);
 
         // if reg offset not tainted && mem tainted  -> free memory
-        if(!isRegOffsetTainted && isMemTainted){
+        if (!isRegOffsetTainted && isMemTainted) {
             removeTaintByte(addr+i);
         }
         // if reg offset tainted && mem not tainted -> taint memory
-        else if(isRegOffsetTainted && !isMemTainted){
-            addTaintByte(addr+i, tempReg->offset[regOffset]);
+        else if (isRegOffsetTainted && !isMemTainted) {
+            addTaintByte(addr+i, offset[i]);
         } 
         // if reg offset tainted && mem tainted     -> update taint offset
-        else if(isRegOffsetTainted && isMemTainted){
-            removeTaintByte(addr+i);
-            addTaintByte(addr+i, tempReg->offset[regOffset]);
-        } 
+        else if (isRegOffsetTainted && isMemTainted) {
+            //removeTaintByte(addr+i);
+            addTaintByte(addr+i, offset[i]);
+        }
         // if reg offset not tainted && mem not tainted -> nothing
         else if(!isRegOffsetTainted && !isMemTainted){
 
@@ -275,1015 +231,848 @@ void taintSTOS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp, UI
     }
 }
 
-VOID taintLODS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp, UINT32 readSize)
+VOID taintLODS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 rdsize)
 {
     REG reg;
-    UINT64 addr = memOp;
-
-    switch(readSize){
-        #if defined(TARGET_IA32E)
-        case REG_SIZE_8:
-            reg = REG_RAX;
-            break;
-        #endif
-        case REG_SIZE_4:
-            reg = REG_EAX;
-            break;
-        case REG_SIZE_2:
-            reg = REG_AX;
-            break;
-        case REG_SIZE_1:
-            reg = REG_AL;
-            break;
-        default:
-            //error
-            return;
+    switch (rdsize) {
+#if defined(TARGET_IA32E)
+    case REG_SIZE_8:
+        reg = REG_RAX;
+        break;
+#endif
+    case REG_SIZE_4:
+        reg = REG_EAX;
+        break;
+    case REG_SIZE_2:
+        reg = REG_AX;
+        break;
+    case REG_SIZE_1:
+        reg = REG_AL;
+        break;
+    default:
+        UNREACHABLE(); //error
     }
 
-    UINT64 offset[32];
+    UINT64 offset[REGISTER_WIDTH];
 
-    for(UINT64 i=0; i < 32; i++) offset[i] = -1;
-
-    UINT64 bitmap = 0;
-
-    for (UINT64 i = 0; i < readSize; i++){
-        bool isMemTainted = isByteTainted(addr+i);
-        
-        // mem tainted && reg offset not tainted -> taint reg offset
-        if(isMemTainted){
-            Byte* tempMem = getTaintByte(addr + i);
-
-            set_bitmap(bitmap, i);
-            offset[i] = tempMem->offset;
-        }
+    Byte* b;
+    for (UINT64 i = 0; i < rdsize; i++){
+        b = getTaintByte(addr + i);
+        if (b)
+            offset[i] = b->offset;
     }
 
-    taintReg(reg, bitmap, offset);
+    taintRegister(reg, offset, rdsize);
 }
 
-/* TODO */
-VOID taintLEA(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, UINT32 size)
+VOID taintLEA(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        removeTaintRegister(reg1);
-    } 
+    clearRegister(reg, size);
+}
+
+/**
+ * lea ecx, [eax+4*ebx+0x4242]
+ * base: eax
+ * idx: ebx
+ * dst: ecx
+ */
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG idx, UINT32 size)
+{
+    BUG_ON(size > REG_Size(dst));
+    // idx 优先级大于 base, idx 更有价值
+    if (REG_valid(idx) && REG_valid(base)) {
+        UINT64 offsets[REGISTER_WIDTH];
+        UINT64 const* offb = getRegisterOffset(base);
+        UINT64 const* offi = getRegisterOffset(idx);
+
+        for (UINT32 i = 0; i < size; ++i) {
+            offsets[i] = INVALID_OFFSET;
+            if (isRegisterOffsetTainted(base, i))
+                offsets[i] = offb[i];
+            // 如果 idx 被污染的信息覆盖 base 寄存器的信息
+            if (isRegisterOffsetTainted(idx, i))
+                offsets[i] = offi[i];
+        }
+        taintRegister(dst, offsets, size);
+#ifdef DEBUG
+        // TODO 正确记录 lea 追踪记录，以便后续计算。数据转移类指令不需要记录
+        tracelog_reg(addr, disasm, dst, 0xcccc, size);
+#endif
+        return;
+    }
+
+    if (REG_valid(idx)) {
+        UINT64 const* offset = getRegisterOffset(idx);
+        if (isRegisterTainted(idx)) {
+#ifdef DEBUG
+            tracelog_regreg(addr, disasm, dst, 0xcccc, idx, 0xcccc, size);
+#endif
+            taintRegister(dst, offset, size);
+        }
+        return;
+    }
+
+    if (REG_valid(base)) {
+        UINT64 const* offset = getRegisterOffset(base);
+        if (isRegisterTainted(base)) {
+#ifdef DEBUG
+            tracelog_regreg(addr, disasm, dst, 0xcccc, base, 0xcccc, size);
+#endif
+            taintRegister(dst, offset, size);
+        }
+        return;
+    }
+    // 寄存器未被污染信息，直接清除
+    clearRegister(dst, size);
 }
 
 VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        // reg1, reg2 both tainted
-        if(isRegisterTainted(reg2)){
-            Register* tempReg2 = getTaintRegister(reg2);
-
-            if(tempReg->tainted != 0 || tempReg2->tainted != 0){
-                printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
-            }
-
-        // reg1 tainted
-        } else {
-            if(tempReg->tainted != 0){
-                printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
-            }
-        }
-    }
-    // reg2 tainted
-    else if(isRegisterTainted(reg2)){
-        Register* tempReg = getTaintRegister(reg2);
-
-        if(tempReg->tainted != 0){
-            printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, size);
-        }
-    }
+    if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
 }
 
 VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, REG reg2, UINT32 size)
 {
-    UINT8 val1[REG_Size(reg1)];
-    UINT8 val2[REG_Size(reg2)];
+    // TODO 这里 size 难道会和 REG_Size(reg1) 不等吗
+    BUG_ON(REG_Size(reg1) != size);
+    BUG_ON(REG_Size(reg1) > 64);
+    BUG_ON(REG_Size(reg2) > 64);
 
-    for (UINT64 i = 0; i < REG_Size(reg1); i++){
-        val1[i] = '\0';
-        val2[i] = '\0';
-    }
+    UINT64 val1, val2;
+    PIN_GetContextRegval(ctx, reg1, (UINT8*)&val1);
+    PIN_GetContextRegval(ctx, reg2, (UINT8*)&val2);
 
-    PIN_GetContextRegval(ctx, reg1, val1);
-    PIN_GetContextRegval(ctx, reg2, val2);
+    if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+}
 
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
+{
+    if (isRegisterTainted(reg))
+        tracelog_regimm(insAddr, insDis, reg, val, imm, size);
+}
 
-        // reg1, reg2 both tainted
-        if(isRegisterTainted(reg2)){
-            Register* tempReg2 = getTaintRegister(reg2);
+VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size)
+{
+    BUG_ON(size > REG_Size(reg));
 
-            if(tempReg->tainted != 0 || tempReg2->tainted != 0){
-                printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, REG_Size(reg1));
-            }
-        // reg1 tainted
-        } else {
-            if(tempReg->tainted != 0){
-                printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, REG_Size(reg1));
-            }
-        }
-    }
-    // reg2 tainted
-    else if(isRegisterTainted(reg2)){
-        Register* tempReg = getTaintRegister(reg2);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
 
-        if(tempReg->tainted != 0){
-            printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, REG_Size(reg1));
-        }
+    if (isRegisterTainted(reg) || mem.tainted) {
+        UINT64 memval = read_uint((UINT8*)addr, size);
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
     }
 }
 
-VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size, UINT64 imm)
+VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg, ADDRINT addr, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    BUG_ON(REG_Size(reg) > 64);
+    BUG_ON(size > REGISTER_WIDTH);
 
-        if(tempReg->tainted != 0){
-            printTraceLog(insAddr, insDis, tempReg, val, imm, size);
-        }
-    } 
-}
+    UINT64 val;
+    PIN_GetContextRegval(ctx, reg, (UINT8*)&val);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
 
-VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
-{
-    MemBlock map;
-    
-    initMemTaint(&map, addr, size);
-
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*) addr, size);
-    } else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*) addr, size);
+    if (isRegisterTainted(reg) || mem.tainted) {
+        UINT64 memval = read_uint((UINT8*)addr, size);
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
     }
 }
 
-VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, ADDRINT addr, UINT32 size)
+VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    UINT8 val[REG_Size(reg1)];
+    BUG_ON(size > REG_Size(reg));
 
-    for (UINT64 i = 0; i < REG_Size(reg1); i++){
-        val[i] = '\0';
-    }
-
-    MemBlock map;
-
-    initMemTaint(&map, addr, size);
-    
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*) addr, size);
-    } else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*) addr, size);
-    }
-}
-
-VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
-{
-    MemBlock map;
-
-    initMemTaint(&map, addr, size);
-
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
-    } else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, (Register*) NULL, val, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    if (isRegisterTainted(reg) || mem.tainted) {
+        UINT64 memval = read_uint((UINT8*)addr, size);
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, memval, size);
     }
 }
 
 VOID traceCMPMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
 
-    if(map.tainted != 0)
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
+    if (mem.tainted) {
+        UINT64 memval = read_uint((UINT8*)addr, size);
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
+    }
 }
 
 VOID traceCMPS(ADDRINT insAddr, string insDis, UINT32 opCount, BOOL isFirst , ADDRINT addr1, ADDRINT addr2, UINT32 size, UINT32 count)
 {
-    if(!isFirst){
-        return ;
-    }
-    
-    MemBlock map1;
-    MemBlock map2;
+    if (!isFirst)
+        return;
 
-    initMemTaint(&map1, addr1, &map2, addr2, size, count);
-    
-    if(map1.tainted != 0 || map2.tainted != 0){
-        printTraceLog(insAddr, insDis, &map1, (UINT8*)addr1, &map2, (UINT8*)addr2, size*count);
-    }
+    MemBlock mem1;
+    MemBlock mem2;
+    initMemTaint(&mem1, addr1, &mem2, addr2, size, count);
+
+    if (mem1.tainted || mem2.tainted)
+        tracelog_memmem_addr(insAddr, insDis, addr1, addr2, size * count);
 }
 
 VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    UINT64 offset[32];
+    UINT64 offset[REGISTER_WIDTH];
 
-    for(UINT64 i=0; i < 32; i++) offset[i] = -1;
-
-    UINT64 bitmap = 0;
-
-    if(isRegisterTainted(reg1)){
-        Register* tempReg1 = getTaintRegister(reg1);
-
+    if (isRegisterTainted(reg1)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
         // reg1, reg2 both tainted
-        if(isRegisterTainted(reg2)){
-            Register* tempReg2 = getTaintRegister(reg2);
-
-            if(tempReg1->tainted != 0 || tempReg2 != 0)
-                printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
-
-            for(UINT i=0; i < size; i++){
-                if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
-                    tempReg1->offset[i] = tempReg2->offset[i];
-                }
+        if (isRegisterTainted(reg2)) {
+            UINT64 const* off1 = getRegisterOffset(reg1);
+            UINT64 const* off2 = getRegisterOffset(reg2);
+            for (UINT32 i = 0; i < size; i++) {
+                offset[i] = off1[i];
+                if (!isRegisterOffsetTainted(reg1, i) && isRegisterOffsetTainted(reg2, i))
+                    offset[i] = off2[i];
             }
-
-            tempReg1->tainted |= tempReg2->tainted;
-
-        // reg1 tainted
-        } else {
-            if(tempReg1->tainted != 0)
-                printTraceLog(insAddr, insDis, tempReg1, val1, (Register*) NULL, val2, size);
+            taintRegister(reg1, offset, size);
         }
+        // reg1 tainted, only, do nothing
     }
-    // reg2 tainted
-    else if(isRegisterTainted(reg2)){
-        Register* tempReg2 = getTaintRegister(reg2);
-
-        taintReg(reg1, bitmap, offset);
-
-        Register* tempReg1 = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
-
-        for(UINT i=0; i < size; i++){
-            if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
-                tempReg1->offset[i] = tempReg2->offset[i];
-            }
-        }
-
-        tempReg1->tainted |= tempReg2->tainted;
+    // reg2 tainted, only
+    else if (isRegisterTainted(reg2)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+        taintRegister(reg1, getRegisterOffset(reg2), size);
     }
 }
 
 VOID traceXORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-        
-        // if reg1 == reg2 -> free
-        if(reg1 == reg2){
-            removeTaintRegister(reg1);
-        }
-        // reg1, reg2 both tainted
-        else if(isRegisterTainted(reg2)){
-            Register* tempReg2 = getTaintRegister(reg2);
+    // xor eax, eax ==> mov eax, 0x0
+    if (reg1 == reg2) {
+        clearRegister(reg1, size);
+        return;
+    }
 
-            if(tempReg->tainted != 0 || tempReg2 != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
-        
-        } 
-        // reg1 tainted
-        else {
-            if(tempReg->tainted != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
+    traceArithRegReg(insAddr, insDis, opCount, reg1, val1, reg2, val2, size);
+}
+
+VOID traceArithRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
+{
+    if (isRegisterTainted(reg))
+        tracelog_regimm(insAddr, insDis, reg, val, imm, size);
+}
+
+VOID traceArithReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size)
+{
+    if (isRegisterTainted(reg))
+        tracelog_reg(insAddr, insDis, reg, val, size);
+}
+
+VOID traceArithMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
+{
+    BUG_ON(size > REGISTER_WIDTH);
+
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+
+    // mem is tainted
+    if (mem.tainted) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+
+        UINT64 const* offreg = getRegisterOffset(reg);
+        for (UINT32 i = 0; i < size; ++i) {
+            if (!get_bitmap(mem.tainted, i) && isRegisterOffsetTainted(reg, i) && offreg)
+                addTaintByte(addr + i, offreg[i]);
         }
     }
-    // reg2 tainted
-    else if(isRegisterTainted(reg2)){
-        Register* tempReg = getTaintRegister(reg2);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg, val2, size);
-    }
-}
-
-VOID traceArithRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size, UINT64 imm)
-{
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, imm, size);
-    } 
-}
-
-VOID traceArithReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size)
-{
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, size);
-    } 
-}
-
-VOID traceArithMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
-{
-    MemBlock map;
-
-    initMemTaint(&map, addr, size);
-
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
-
-    } else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, (Register*) NULL, val, size);
+    // reg is tainted, only
+    else if (isRegisterTainted(reg)) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+        addTaintBlock(addr, getRegisterOffset(reg), size);
     }
 }
 
-VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
+VOID traceArithRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    // reg is tainted
+    if (isRegisterTainted(reg)) {
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
 
-        printTraceLog(insAddr, insDis, tempReg, val, &map, (UINT8*)addr, size);
-
-        UINT64 bitmap = tempReg->tainted | map.tainted;
-
-        for(UINT64 i = 0; i < size; i++){
-            if (get_bitmap(map.tainted, i)) {
-                tempReg->offset[i] = map.offset[i];
-            }
+        UINT64 offset[REGISTER_WIDTH];
+        for (UINT32 i = 0; i < size; i++){
+            offset[i] = INVALID_OFFSET;
+            if (!isRegisterOffsetTainted(reg, i) && get_bitmap(mem.tainted, i))
+                offset[i] = mem.offset[i];
         }
-        
-        taintReg(reg1, bitmap, tempReg->offset);
-
-    } else if(map.tainted != 0){
-        taintReg(reg1, map.tainted, map.offset);
-   
-        printTraceLog(insAddr, insDis, (Register*) NULL, val, &map, (UINT8*)addr, size);
+        taintRegister(reg, offset, size);
+    }
+    // mem is tainted, only
+    else if (mem.tainted) {
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
+        taintRegister(reg, mem.offset, size);
     }
 }
 
 VOID traceArithMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
+    printf("%lx: %s, size: %d, imm: %lx, addr: %lx\n", insAddr, insDis.c_str(), size, imm, addr);
 
+    MemBlock map;
     initMemTaint(&map, addr, size);
-    
-    if(map.tainted != 0)
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+
+    if (map.tainted)
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
 }
 
 VOID traceArithMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size)
 {
+    BUG_ON(size > REGISTER_WIDTH);
+
     MemBlock map;
-
     initMemTaint(&map, addr, size);
-    
-    if(map.tainted != 0)
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+
+    if (map.tainted)
+        tracelog_mem(insAddr, insDis, addr, memval, size);
 }
 
-VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size, UINT64 imm)
+/**
+ * and eax, 0x01
+ */
+VOID traceANDRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-        UINT64 bitmap = tempReg->tainted;
+    if (isRegisterTainted(reg)) {
+        tracelog_regimm(insAddr, insDis, reg, val, imm, size);
 
-        if(bitmap != 0){
-            printTraceLog(insAddr, insDis, tempReg, val, imm, size);
+        UINT64 offset[REGISTER_WIDTH];
+        UINT64 const* offreg = getRegisterOffset(reg);
+        for (UINT32 i = 0; i < size; i++) {
+            UINT8 byte = (imm >> (i*8)) & 0xff;
+            offset[i] = offreg[i];
+            if (byte == 0)
+                offset[i] = INVALID_OFFSET;
         }
-
-        for(UINT64 i=0; i < size; i++){    
-            UINT64 byte = (imm >> (i*8)) & 0xff;
-
-            if(byte == 0){
-                clr_bitmap(bitmap, i);
-            }
-        }
-
-        if(bitmap != tempReg->tainted){
-            UINT64 offset[32];
-
-            for(UINT64 i=0; i < 32; i++) {
-                if (get_bitmap(bitmap, i)) {
-                    offset[i] = tempReg->offset[i];
-                } else{
-                    offset[i] = -1;
-                }
-            }
-            taintReg(reg1, bitmap, offset);
-        }
-    } 
+        taintRegister(reg, offset, size);
+    }
 }
 
+/**
+ * and [eax+0x2], 0x42
+ */
 VOID traceANDMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
+    BUG_ON(size > REGISTER_WIDTH);
+
     MemBlock map;
-
     initMemTaint(&map, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(map.tainted != 0)
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
+    if (map.tainted) {
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
+        for (UINT32 i = 0; i < size; ++i) {
+            UINT8 byte = (imm >> (i*8)) & 0xff;
+            if (byte == 0)
+                removeTaintByte(addr + i);
+        }
+    }
 }
 
+/**
+ * or eax, eax
+ */
 VOID traceORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    UINT64 offset[32];
+    traceArithRegReg(insAddr, insDis, opCount, reg1, val1, reg2, val2, size);
+}
 
-    for(UINT64 i=0; i < 32; i++)
-        offset[i] = -1;
+/**
+ * or [eax+0x], ebx
+ */
+VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
+{
+    traceArithMemReg(insAddr, insDis, opCount, addr, reg, val, size);
+}
 
-    UINT64 bitmap = 0;
+static inline
+void copy_offset(UINT64* dst, UINT64 const* src, UINT32 size)
+{
+    memcpy(dst, src, size * sizeof(UINT64));
+}
 
-    if(isRegisterTainted(reg2)){
-        Register* tempReg2 = getTaintRegister(reg2);
+static
+void shl_reg(REG reg, UINT32 shift, UINT32 size)
+{
+    BUG_ON(!isRegisterTainted(reg));
+    // 按照字节的移位
+    UINT64 offset[REGISTER_WIDTH];
+    UINT64 const* offreg = getRegisterOffset(reg);
+    copy_offset(offset, offreg, size);
 
-        if(!isRegisterTainted(reg1)){
-            taintReg(reg1, bitmap, offset);
-        }
+    shift = (shift/8) + ((shift%8) >= 4);
+    shift = min(size, shift);
+    for (UINT32 i = size-1; i >= shift; --i)
+        offset[i] = offset[i - shift];
+    for (UINT32 i = shift-1; i >= 0; --i)
+        offset[i] = INVALID_OFFSET;
+    taintRegister(reg, offset, size);
+}
 
-        Register* tempReg1 = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
-
-        for(UINT i=0; i < size; i++){
-            if (!get_bitmap(tempReg1->tainted, i) && get_bitmap(tempReg2->tainted, i)) {
-                tempReg1->offset[i] = tempReg2->offset[i];
-            }
-        }
-
-        tempReg1->tainted |= tempReg2->tainted;
-    }
-    else if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        // reg1, reg2 both tainted
-        if(isRegisterTainted(reg2)){
-            Register* tempReg2 = getTaintRegister(reg2);
-
-            if(tempReg->tainted != 0 || tempReg2 != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
-
-        // reg1 tainted
-        } else {
-            if(tempReg->tainted != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
-        }
-    }
+static
+void shl_mem(ADDRINT addr, MemBlock* mem, UINT32 shift, UINT32 size)
+{
+    // 按照字节的移位
+    UINT64* offset = mem->offset;
+    shift = (shift/8) + ((shift%8) >= 4);
+    shift = min(size, shift);
+    for (UINT32 i = size-1; i >= shift; --i)
+        offset[i] = offset[i - shift];
+    for (UINT32 i = shift-1; i >= 0; --i)
+        offset[i] = INVALID_OFFSET;
+    addTaintBlock(addr, offset, size);
 }
 
 
-VOID traceORMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
+/**
+ * shl reg, 0x2
+ */
+VOID traceSHLRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
-    
-    initMemTaint(&map, addr, size);
+    if (isRegisterTainted(reg)) {
+        tracelog_regimm(insAddr, insDis, reg, val, imm, size);
 
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
-
-        for(UINT64 i = 0; i < size; i++){
-            //taint mem if reg offset tainted 
-            if (get_bitmap(tempReg->tainted, i)) {
-
-                if(isByteTainted(addr+i)){
-                    removeTaintByte(addr+i);
-                }
-
-                addTaintByte(addr+i, tempReg->offset[i]);
-            }
-        }
-    } else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, (Register*) NULL, val, size);
+        shl_reg(reg, imm, size);
     }
 }
 
-VOID traceSHLRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size, UINT64 imm)
+/**
+ * shl eax, ebx
+ */
+VOID traceSHLRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    if (isRegisterTainted(reg1)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
 
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, imm, size);
-
-        if ((imm % 8) == 0){
-            UINT64 offset[32];
-            UINT64 bitmap = 0;
-
-            UINT64 count = (imm / 8);
-
-            bitmap = tempReg->tainted << count;
-
-            for(UINT64 i=0; i < 32 - count; i++){
-                offset[31 - i] = tempReg->offset[31 - i - count];
-            }
-
-            for(UINT64 i=0; i < count; i++){
-                offset[i] = -1;
-            }
-
-            taintReg(reg1, bitmap, offset);
-        } 
-    } 
+        shl_reg(reg1, val2, size);
+    }
 }
 
-VOID traceSHLRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, REG reg2, ADDRINT val2, UINT32 size)
-{
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-        Register* tempReg2 = getTaintRegister(reg2);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, tempReg2, val2, size);
-
-        if ((val2 % 8) == 0){
-            UINT64 offset[32];
-            UINT64 bitmap = 0;
-
-            UINT64 count = (val2 / 8);
-
-            bitmap = tempReg->tainted << count;
-
-            for(UINT64 i=0; i < 32 - count; i++){
-                offset[31 - i] = tempReg->offset[31 - i - count];
-            }
-
-            for(UINT64 i=0; i < count; i++){
-                offset[i] = -1;
-            }
-
-            taintReg(reg1, bitmap, offset);
-        } 
-    } 
-}
-
+/**
+ * shl [eax+0x1], ebx
+ */
 VOID traceSHLMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(map.tainted != 0){
-        Register* tempReg = getTaintRegister(reg);
+    if (mem.tainted) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
 
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
-
-        UINT64 offset[32];
-        UINT64 bitmap = 0;
-        UINT64 count = (val / 8);
-
-        bitmap = map.tainted << count;
-
-        for(UINT64 i=0; i < 32 - count; i++){
-            offset[31 - i] = map.offset[31 - i - count];
-        }
-
-        for(UINT64 i=0; i < count; i++){
-            offset[i] = -1;
-        }
-
-        for(UINT64 i=0; i < size; i++){
-            if((bitmap & (1 << i)) != 0){
-                addTaintByte(addr+i, offset[i]);
-            } else{
-                removeTaintByte(addr+i);
-            }
-        }
+        shl_mem(addr, &mem, val, size);
     }
 }
 
+/**
+ * shl [eax+0x], 0x4
+ */
 VOID traceSHLMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
-
-        UINT64 offset[32];
-        UINT64 bitmap = 0;
-        UINT64 count = (imm / 8);
-
-        bitmap = map.tainted << count;
-
-        for(UINT64 i=0; i < 32 - count; i++){
-            offset[31 - i] = map.offset[31 - i - count];
-        }
-
-        for(UINT64 i=0; i < count; i++){
-            offset[i] = -1;
-        }
-
-        for(UINT64 i=0; i < size; i++){
-            if((bitmap & (1 << i)) != 0){
-                addTaintByte(addr+i, offset[i]);
-            } else{
-                removeTaintByte(addr+i);
-            }
-        }
+    if (mem.tainted) {
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
+        shl_mem(addr, &mem, imm, size);
     }
 }
 
-VOID traceSHRRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size, UINT64 imm)
+static
+void shr_reg(REG reg, UINT32 shift, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    BUG_ON(!isRegisterTainted(reg));
+    // 按照字节的移位
+    UINT64 offset[REGISTER_WIDTH];
+    UINT64 const* offreg = getRegisterOffset(reg);
+    copy_offset(offset, offreg, size);
 
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, imm, size);
-
-        if((imm % 8) == 0){
-            UINT64 offset[32];
-            UINT64 bitmap = 0;
-
-            UINT64 count = (imm / 8);
-
-            bitmap = tempReg->tainted >> count;
-
-            for(UINT64 i=0; i < 32 - count; i++){
-                offset[i] = tempReg->offset[i + count];
-            }
-
-            for(UINT64 i=0; i < count; i++){
-                offset[31-i] = -1;
-            }
-
-            taintReg(reg1, bitmap, offset);            
-        } 
-    } 
+    shift = (shift/8) + ((shift%8) >= 4);
+    shift = min(size, shift);
+    for (UINT32 i = 0; i < size - shift; ++i)
+        offset[i] = offset[i+shift];
+    for (UINT32 i = size - shift; i < size; ++i)
+        offset[i] = INVALID_OFFSET;
+    taintRegister(reg, offset, size);
 }
 
-VOID traceSHRRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, REG reg2, ADDRINT val2, UINT32 size)
+static
+void shr_mem(ADDRINT addr, MemBlock* mem, UINT32 shift, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
-        Register* tempReg2 = getTaintRegister(reg2);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, tempReg2, val2, size);
-
-        if((val2 % 8) == 0){
-            UINT64 offset[32];
-            UINT64 bitmap = 0;
-
-            UINT64 count = (val2 / 8);
-
-            bitmap = tempReg->tainted >> count;
-
-            for(UINT64 i=0; i < 32 - count; i++){
-                offset[i] = tempReg->offset[i + count];
-            }
-
-            for(UINT64 i=0; i < count; i++){
-                offset[31-i] = -1;
-            }
-
-            taintReg(reg1, bitmap, offset);            
-        } 
-    } 
+    UINT64* offset = mem->offset;
+    shift = (shift/8) + ((shift%8) >= 4);
+    shift = min(size, shift);
+    for (UINT32 i = 0; i < size - shift; ++i)
+        offset[i] = offset[i+shift];
+    for (UINT32 i = size - shift; i < size; ++i)
+        offset[i] = INVALID_OFFSET;
+    addTaintBlock(addr, offset, size);
 }
 
+/**
+ * shr eax, 0x4
+ */
+VOID traceSHRRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
+{
+    if (isRegisterTainted(reg)) {
+        tracelog_regimm(insAddr, insDis, reg, val, imm, size);
+
+        shr_reg(reg, imm, size);
+    }
+}
+
+/**
+ * shr eax, ebx
+ */
+VOID traceSHRRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
+{
+    if (isRegisterTainted(reg1)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+
+        shr_reg(reg1, val2, size);
+    }
+}
+
+/**
+ * shr [eax+0x2], ebx
+ */
 VOID traceSHRMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(map.tainted != 0){
-        Register* tempReg = getTaintRegister(reg);
-
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
-
-        UINT64 offset[32];
-        UINT64 bitmap = 0;
-        UINT64 count = (val / 8);
-
-        bitmap = map.tainted >> count;
-
-        for(UINT64 i=0; i < 32 - count; i++){
-            offset[i] = map.offset[i + count];
-        }
-
-        for(UINT64 i=0; i < count; i++){
-            offset[31-i] = -1;
-        }
-
-        for(UINT64 i=0; i < size; i++){
-            if((bitmap & (1 << i)) != 0){
-                addTaintByte(addr+i, offset[i]);
-            } else{
-                removeTaintByte(addr+i);
-            }
-        }
+    if (mem.tainted) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+        shr_mem(addr, &mem, val, size);
     }
 }
 
+/**
+ * shr [eax+0x2], 0x4
+ */
 VOID traceSHRMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, imm, size);
-
-        UINT64 offset[32];
-        UINT64 bitmap = 0;
-        UINT64 count = (imm / 8);
-
-        bitmap = map.tainted << count;
-
-        for(UINT64 i=0; i < 32 - count; i++){
-            offset[i] = map.offset[i + count];
-        }
-
-        for(UINT64 i=0; i < count; i++){
-            offset[31-i] = -1;
-        }
-
-        for(UINT64 i=0; i < size; i++){
-            if((bitmap & (1 << i)) != 0){
-                addTaintByte(addr+i, offset[i]);
-            } else{
-                removeTaintByte(addr+i);
-            }
-        }
+    if (mem.tainted) {
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
+        shr_mem(addr, &mem, imm, size);
     }
 }
 
-//????
-VOID traceMULRegRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, REG reg2, ADDRINT val2, UINT32 size, UINT64 imm)
+/**
+ * mul reg1, reg2, imm ==> reg1 = reg2 * imm
+ */
+VOID traceMULRegRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size, UINT64 imm)
 {
     //output << hex << "[MUL]\t" << insAddr << ": " << insDis;
     //output << " " << REG_StringShort(reg1) << " " << REG_StringShort(reg2) << " " << imm << endl;
-    //output << hex << "\t\t\tsize: " << size << endl; 
+    //output << hex << "\t\t\tsize: " << size << endl;
 
-    if(isRegisterTainted(reg2)){
-        // REG_TAINT* tempReg = getTaintRegister(reg1);
-        Register* tempReg2 = getTaintRegister(reg2);
+    if (isRegisterTainted(reg2)) {
+        // TODO 正确打印 mul reg1, reg2, imm 指令的输出格式
+        tracelog_regimm(insAddr, insDis, reg2, val2, imm, size);
 
-        if(tempReg2->tainted != 0)
-            printTraceLog(insAddr, insDis, NULL, val, tempReg2, val2, imm, size);
-
-        // taintReg(reg1, bitmap, offset);            
-        taintReg(reg1, tempReg2->tainted, tempReg2->offset);
-    } 
+        taintRegister(reg1, getRegisterOffset(reg2), size);
+    }
 }
 
-VOID traceMULRegMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size, UINT64 imm)
+/**
+ * mul reg, mem, imm
+ */
+VOID traceMULRegMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size, UINT64 imm)
 {
-    MemBlock map;
-    
-    initMemTaint(&map, addr, size);
+    BUG_ON(size > REGISTER_WIDTH);
 
-    if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, NULL, val, &map, (UINT8*) addr, imm, size);
-        taintReg(reg1, map.tainted, map.offset);
-    } 
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+
+    if (mem.tainted) {
+        // TODO 正确打印 mul reg1, mem, imm 指令的输出格式
+        tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
+        taintRegister(reg, mem.offset, size);
+    }
 }
 
+/**
+ * xchg reg, reg
+ */
 VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    Register* tempReg1 = getTaintRegister(reg1);
-    Register* tempReg2 = getTaintRegister(reg2);
+    if (reg1 == reg2)
+        return;
 
-    UINT64 bitmap = 0;
-    UINT64 offset[32];
+    UINT64 const* offreg1 = getRegisterOffset(reg1);
+    UINT64 const* offreg2 = getRegisterOffset(reg2);
+    if (isRegisterTainted(reg1) && isRegisterTainted(reg2)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
 
-    if(tempReg1 != NULL) {
-      bitmap = tempReg1->tainted;
-      for(UINT64 i=0; i < 32; i++) offset[i] = tempReg1->offset[i];
+        UINT64 off1[REGISTER_WIDTH];
+        UINT64 off2[REGISTER_WIDTH];
+        // swap
+        copy_offset(off1, offreg2, size);
+        copy_offset(off2, offreg1, size);
+        taintRegister(reg1, off1, size);
+        taintRegister(reg2, off2, size);
     }
-
-    if(tempReg1 != NULL || tempReg2 != NULL)
-        printTraceLog(insAddr, insDis, tempReg1, val1, tempReg2, val2, size);
-
-    if(tempReg2 != NULL)
-        taintReg(reg1, tempReg2->tainted, tempReg2->offset);
-    else
-        removeTaintRegister(reg1);
-
-    if(tempReg1 != NULL)
-        taintReg(reg2, bitmap, offset);
-    else
-        removeTaintRegister(reg2);
+    // reg1 -> reg2
+    else if (isRegisterTainted(reg1)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+        taintRegister(reg2, getRegisterOffset(reg1), size);
+        clearRegister(reg1, size);
+    }
+    // reg1 <- reg2
+    else if (isRegisterTainted(reg2)) {
+        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+        taintRegister(reg1, getRegisterOffset(reg2), size);
+        clearRegister(reg2, size);
+    }
 }
 
-VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
+/**
+ * xchg mem, reg
+ */
+VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg, ADDRINT val, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+    UINT64 const* offset = getRegisterOffset(reg);
 
-    Register* tempReg = getTaintRegister(reg1);
-
-    if(map.tainted != 0 || tempReg != NULL){
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
+    if (mem.tainted && isRegisterTainted(reg)) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+        // mem <- reg
+        addTaintBlock(addr, offset, size);
+        // reg <- tmp
+        taintRegister(reg, mem.offset, size);
     }
-
-    if(tempReg != NULL)
-        addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
-    else
+    // reg <- tmp
+    else if (mem.tainted) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+        taintRegister(reg, mem.offset, size);
         removeTaintBlock(addr, size);
-
-    if(map.tainted != 0)
-        taintReg(reg1, map.tainted, map.offset);
-    else
-        removeTaintRegister(reg1);
+    }
+    // mem <- reg
+    else if (isRegisterTainted(reg)) {
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+        addTaintBlock(addr, offset, size);
+        clearRegister(reg, size);
+    }
 }
 
-VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, ADDRINT addr, UINT32 size)
+/**
+ * xchg reg, mem
+ */
+VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size)
 {
-    MemBlock map;
+    BUG_ON(size > REGISTER_WIDTH);
 
-    initMemTaint(&map, addr, size);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
+    UINT64 const* offset = getRegisterOffset(reg);
 
-    Register* tempReg = getTaintRegister(reg1);
-
-    if(map.tainted != 0 || tempReg != NULL){
-        printTraceLog(insAddr, insDis, &map, (UINT8*)addr, tempReg, val, size);
+    if (mem.tainted && isRegisterTainted(reg)) {
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
+        // mem <- reg
+        addTaintBlock(addr, offset, size);
+        // reg <- tmp
+        taintRegister(reg, mem.offset, size);
     }
-
-    if(tempReg != NULL)
-        addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
-    else
+    // reg <- tmp
+    else if (mem.tainted) {
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
+        taintRegister(reg, mem.offset, size);
         removeTaintBlock(addr, size);
-
-    if(map.tainted != 0)
-        taintReg(reg1, map.tainted, map.offset);
-    else
-        removeTaintRegister(reg1);
+    }
+    // mem <- reg
+    else if (isRegisterTainted(reg)) {
+        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
+        addTaintBlock(addr, offset, size);
+        clearRegister(reg, size);
+    }
 }
 
+/**
+ * cmpxchg r/m, r
+ * if (dst == eax) {
+ *     dst = src
+ *     zf = 1
+ * }
+ * else {
+ *    dst = eax
+ *    zf = 0
+ * }
+ */
 /* temp cmpxchg handler */
 VOID traceCMPXCHGRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    UINT64 valAX = 0;
-    REG regAX = REG_EAX;
-
-    switch(size){
-        case REG_SIZE_1:
-            regAX = REG_AL;
-            break;
-        case REG_SIZE_2:
-            regAX = REG_AX;
-            break;
-        case REG_SIZE_4:
-            regAX = REG_EAX;
-            break;
-        #if defined(TARGET_IA32E)
-        case REG_SIZE_8:
-            regAX = REG_RAX;
-            break;
-        #endif
-        default:
-            break;
+    REG rax = REG_EAX;
+    switch (size) {
+    case REG_SIZE_1:
+        rax = REG_AL;
+        break;
+    case REG_SIZE_2:
+        rax = REG_AX;
+        break;
+    case REG_SIZE_4:
+        rax = REG_EAX;
+        break;
+#if defined(TARGET_IA32E)
+    case REG_SIZE_8:
+        rax = REG_RAX;
+        break;
+#endif
+    default:
+        UNREACHABLE();
     }
-    
-    PIN_GetContextRegval(ctx, regAX, (UINT8*) &valAX);
 
-    Register* tempReg = getTaintRegister(reg1);
-    Register* tempReg2 = getTaintRegister(reg2);
+    UINT64 raxval = 0;
+    PIN_GetContextRegval(ctx, rax, (UINT8*)&raxval);
 
-    if(isRegisterTainted(reg1)){
-        // reg1, reg2 both tainted
-        if(isRegisterTainted(reg2)){
-            if(tempReg->tainted != 0 || tempReg2->tainted != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, tempReg2, val2, size);
-
-            if(valAX == val1)
-                taintReg(reg1, tempReg2->tainted, tempReg2->offset);
-            else
-                taintReg(regAX, tempReg->tainted, tempReg->offset);
-
-        } 
-        // reg1 tainted
-        else {
-            if(tempReg->tainted != 0)
-                printTraceLog(insAddr, insDis, tempReg, val1, (Register*) NULL, val2, size);
-
-            if(valAX == val1)
-                removeTaintRegister(reg1);
-            else
-                taintReg(regAX, tempReg->tainted, tempReg->offset);
+    if (val1 == raxval) {
+        if (isRegisterTainted(reg2)) {
+            tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+            taintRegister(reg1, getRegisterOffset(reg2), size);
+        } else {
+            clearRegister(reg1, size);
+        }
+    } else {
+        if (isRegisterTainted(rax)) {
+            tracelog_regreg(insAddr, insDis, reg1, val1, rax, raxval, size);
+            taintRegister(reg1, getRegisterOffset(rax), size);
+        } else {
+            clearRegister(reg1, size);
         }
     }
-    // reg2 tainted
-    else if(isRegisterTainted(reg2)){
-        if(tempReg2->tainted != 0)
-            printTraceLog(insAddr, insDis, (Register*) NULL, val1, tempReg2, val2, size);
-
-        if(valAX == val1)
-            taintReg(reg1, tempReg2->tainted, tempReg2->offset);
-    }
 }
 
-VOID traceCMPXCHGMemReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size)
+/**
+ * cmpxchg mem, reg
+ */
+VOID traceCMPXCHGMemReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, ADDRINT addr, REG reg2, ADDRINT val2, UINT32 size)
 {
-    UINT64 valAX = 0;
-    REG regAX = REG_EAX;
-
-    switch(size){
-        case REG_SIZE_1:
-            regAX = REG_AL;
-            break;
-        case REG_SIZE_2:
-            regAX = REG_AX;
-            break;
-        case REG_SIZE_4:
-            regAX = REG_EAX;
-            break;
-        #if defined(TARGET_IA32E)
-        case REG_SIZE_8:
-            regAX = REG_RAX;
-            break;
-        #endif
-        default:
-            break;
+    REG rax = REG_EAX;
+    switch (size) {
+    case REG_SIZE_1:
+        rax = REG_AL;
+        break;
+    case REG_SIZE_2:
+        rax = REG_AX;
+        break;
+    case REG_SIZE_4:
+        rax = REG_EAX;
+        break;
+#if defined(TARGET_IA32E)
+    case REG_SIZE_8:
+        rax = REG_RAX;
+        break;
+#endif
+    default:
+        UNREACHABLE();
     }
-    
-    PIN_GetContextRegval(ctx, regAX, (UINT8*) &valAX);
 
-    Register* tempReg = getTaintRegister(reg1);
+    UINT64 raxval = 0;
+    PIN_GetContextRegval(ctx, rax, (UINT8*) &raxval);
 
-    MemBlock map;
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+    UINT64 memval = read_uint((UINT8*)addr, size);
 
-    initMemTaint(&map, addr, size);
-
-    if(isRegisterTainted(reg1)){
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, tempReg, val, size);
-
-        if(!memcmp((UINT8*) &valAX, (UINT8*) addr, size))          
-            addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
-        else{
-            if(map.tainted != 0)
-                taintReg(regAX, map.tainted, map.offset);
-            else
-                removeTaintRegister(regAX);
+    if (memval == val2) {
+        if (isRegisterTainted(reg2)) {
+            tracelog_memreg(insAddr, insDis, addr, memval, reg2, val2, size);
+            addTaintBlock(addr, getRegisterOffset(reg2), size);
+        } else {
+            removeTaintBlock(addr, size);
         }
-    } 
-    else if(map.tainted != 0){
-        printTraceLog(insAddr, insDis, &map, (UINT8*) addr, (Register*) NULL, val, size);
-
-        if(!memcmp((UINT8*) &valAX, (UINT8*) addr, size))
-            addTaintBlock(addr, size, tempReg->tainted, tempReg->offset);
+    } else {
+        if (isRegisterTainted(rax)) {
+            tracelog_memreg(insAddr, insDis, addr, memval, rax, raxval, size);
+            addTaintBlock(addr, getRegisterOffset(rax), size);
+        } else {
+            removeTaintBlock(addr, size);
+        }
     }
 }
 
-VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val, UINT32 size)
+/**
+ * bswap reg, 支持是 32 和 64 位
+ */
+VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size)
 {
-    if(isRegisterTainted(reg1)){
-        Register* tempReg = getTaintRegister(reg1);
+    BUG_ON(size < 4);
 
-        UINT64 bitmap = 0;
-        UINT64 offset[32];
+    if (isRegisterTainted(reg)) {
+        tracelog_reg(insAddr, insDis, reg, val, size);
 
-        bitmap = tempReg->tainted;
-
-        for(UINT64 i=0; i < 32; i++) offset[i] = -1;
-
-        for(UINT64 i=0; i < size; i++) offset[i] = tempReg->offset[size-i-1];
-
-        taintReg(reg1, bitmap, offset);
-
-        tempReg = getTaintRegister(reg1);
-
-        if(tempReg->tainted != 0)
-            printTraceLog(insAddr, insDis, tempReg, val, size);
+        UINT64 offset[REGISTER_WIDTH];
+        copy_offset(offset, getRegisterOffset(reg), size);
+        reverse(offset, offset+size);
+        taintRegister(reg, offset, size);
     }
 }
 
+/**
+ * jmp eax
+ */
 void trace_jmpreg(ADDRINT addr, string const& disasm, REG reg, ADDRINT toaddr, UINT32 size)
 {
     Register* r = getTaintRegister(reg);
     printf("%lx: %s | toaddr: %lx, r: %p\n", addr, disasm.c_str(), toaddr, r);
-    if (r && r->tainted) {
-        printTraceLog(addr, disasm, r, toaddr, size);
+    if (isRegisterTainted(reg)) {
+        tracelog_reg(addr, disasm, reg, toaddr, size);
     }
 }
 
-void trace_jmpmem(ADDRINT addr, string const& disasm, ADDRINT regval, ADDRINT toaddr, UINT32 size)
+/**
+ * jmp [eax+4*ebx+0x22]
+ */
+void trace_jmpmem(ADDRINT addr, string const& disasm, ADDRINT toaddr, REG base, REG idx, UINT32 size)
 {
-    printf("%lx: %s | regval: %lx, toaddr: %lx (%lx), size: %d\n", addr, disasm.c_str(), regval, toaddr, (*(UINT64*)toaddr), size);
-    MemBlock block;
-    initMemTaint(&block, regval, size);
-    if (block.tainted) {
-        printTraceLog(addr, disasm, &block, (UINT8*)&toaddr, size);
-        printTraceLog(addr, disasm, &block, (UINT8*)toaddr, size);
+    printf("%lx: %s | toaddr: %lx, size: %d\n", addr, disasm.c_str(), toaddr, size);
+    if (REG_valid(base) && isRegisterTainted(base)) {
+        printf("base reg is tainted\n");
+        tracelog_reg(addr, disasm, base, 0xcccc, size);
+        return;
+    }
+
+    if (REG_valid(idx) && isRegisterTainted(idx)) {
+        printf("idx reg is tainted\n");
+        tracelog_reg(addr, disasm, idx, 0xcccc, size);
+        return;
     }
 }
