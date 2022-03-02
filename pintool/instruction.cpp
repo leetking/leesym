@@ -25,6 +25,14 @@ UINT64 read_uint(UINT8 const* addr, UINT32 size)
     }
 }
 
+static inline
+UINT64 get_reg_value(CONTEXT* ctx, REG reg)
+{
+    UINT64 ret;
+    PIN_GetContextRegval(ctx, reg, (UINT8*)&ret);
+    return ret;
+}
+
 void initMemTaint(MemBlock* map, ADDRINT addr, UINT32 size)
 {
     BUG_ON(!map);
@@ -277,35 +285,30 @@ VOID taintLEA(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 si
  * idx: ebx
  * dst: ecx
  */
-VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG idx, UINT32 size)
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
+        REG dst, REG base, REG idx, UINT32 scale, UINT64 disp, UINT32 inssize, UINT32 size)
 {
-    BUG_ON(size > REGISTER_WIDTH);
-    // idx 优先级大于 base, idx 更有价值
-    if (REG_valid(idx) && REG_valid(base)) {
-        UINT64 offsets[REGISTER_WIDTH];
-        UINT64 const* offb = getRegisterOffset(base);
-        UINT64 const* offi = getRegisterOffset(idx);
-
-        for (UINT32 i = 0; i < size; ++i) {
-            offsets[i] = INVALID_OFFSET;
-            if (isRegisterOffsetTainted(base, i))
-                offsets[i] = offb[i];
-            // 如果 idx 被污染的信息覆盖 base 寄存器的信息
-            if (isRegisterOffsetTainted(idx, i))
-                offsets[i] = offi[i];
-        }
-        taintRegister(dst, offsets, size);
-#ifdef DEBUG
-        // TODO 正确记录 lea 追踪记录，以便后续计算。数据转移类指令不需要记录
-        tracelog_reg(addr, disasm, dst, 0xcccc, size);
-#endif
-        return;
+    UINT64 bval = 0, ival = 0;
+    if (REG_valid(base)) {
+        bval = get_reg_value(ctx, base);
+        if (REG_RIP == base || REG_EIP == base || REG_IP == base)
+            bval += inssize;
     }
+    if (REG_valid(idx))
+        ival = get_reg_value(ctx, idx);
 
+    BUG_ON(!IS_POWER_OF2(scale));
+    BUG_ON(size > REGISTER_WIDTH);
+    //BUG_ON(result != (bval + scale * ival + disp));
+    printf("%lx: %s, result: %lx, bval: %lx, scale: %d, ival: %lx disp: %lx\n",
+            addr, disasm.c_str(), (bval + scale * ival + disp),
+            bval, scale, ival, disp);
+
+    // idx 优先级大于 base, idx 更有价值
     if (REG_valid(idx)) {
         UINT64 const* offset = getRegisterOffset(idx);
         if (isRegisterTainted(idx)) {
-            tracelog_regreg(addr, disasm, dst, 0xcccc, idx, 0xcccc, size);
+            tracelog_leamem(addr, disasm, base, bval, scale, idx, ival, disp, size);
             taintRegister(dst, offset, size);
         }
         return;
@@ -314,9 +317,7 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG id
     if (REG_valid(base)) {
         UINT64 const* offset = getRegisterOffset(base);
         if (isRegisterTainted(base)) {
-#ifdef DEBUG
-            tracelog_regreg(addr, disasm, dst, 0xcccc, base, 0xcccc, size);
-#endif
+            tracelog_leamem(addr, disasm, base, bval, scale, idx, ival, disp, size);
             taintRegister(dst, offset, size);
         }
         return;
@@ -339,8 +340,8 @@ VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     BUG_ON(REG_Size(reg2) > 64);
 
     UINT64 val1, val2;
-    PIN_GetContextRegval(ctx, reg1, (UINT8*)&val1);
-    PIN_GetContextRegval(ctx, reg2, (UINT8*)&val2);
+    val1 = get_reg_value(ctx, reg1);
+    val2 = get_reg_value(ctx, reg2);
 
     if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
         tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
@@ -371,8 +372,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     BUG_ON(REG_Size(reg) > 64);
     BUG_ON(size > REGISTER_WIDTH);
 
-    UINT64 val;
-    PIN_GetContextRegval(ctx, reg, (UINT8*)&val);
+    UINT64 val = get_reg_value(ctx, reg);
     MemBlock mem;
     initMemTaint(&mem, addr, size);
 
@@ -831,17 +831,19 @@ VOID traceMULRegMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, 
 
 /**
  * xchg reg, reg
+ * 这条是数据转移指令，不需要打印日志
  */
 VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
     if (reg1 == reg2)
         return;
+#ifdef DEBUG
+    tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+#endif
 
     UINT64 const* offreg1 = getRegisterOffset(reg1);
     UINT64 const* offreg2 = getRegisterOffset(reg2);
     if (isRegisterTainted(reg1) && isRegisterTainted(reg2)) {
-        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
-
         UINT64 off1[REGISTER_WIDTH];
         UINT64 off2[REGISTER_WIDTH];
         // swap
@@ -852,13 +854,11 @@ VOID traceXCHGRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, A
     }
     // reg1 -> reg2
     else if (isRegisterTainted(reg1)) {
-        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
         taintRegister(reg2, getRegisterOffset(reg1), size);
         clearRegister(reg1, size);
     }
     // reg1 <- reg2
     else if (isRegisterTainted(reg2)) {
-        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
         taintRegister(reg1, getRegisterOffset(reg2), size);
         clearRegister(reg2, size);
     }
@@ -873,11 +873,13 @@ VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT add
 
     MemBlock mem;
     initMemTaint(&mem, addr, size);
-    UINT64 memval = read_uint((UINT8*)addr, size);
     UINT64 const* offset = getRegisterOffset(reg);
+#ifdef DEBUG
+    UINT64 memval = read_uint((UINT8*)addr, size);
+    tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
+#endif
 
     if (mem.tainted && isRegisterTainted(reg)) {
-        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
         // mem <- reg
         addTaintBlock(addr, offset, size);
         // reg <- tmp
@@ -885,13 +887,11 @@ VOID traceXCHGMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT add
     }
     // reg <- tmp
     else if (mem.tainted) {
-        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
         taintRegister(reg, mem.offset, size);
         removeTaintBlock(addr, size);
     }
     // mem <- reg
     else if (isRegisterTainted(reg)) {
-        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
         addTaintBlock(addr, offset, size);
         clearRegister(reg, size);
     }
@@ -906,11 +906,12 @@ VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, AD
 
     MemBlock mem;
     initMemTaint(&mem, addr, size);
-    UINT64 memval = read_uint((UINT8*)addr, size);
     UINT64 const* offset = getRegisterOffset(reg);
-
+#ifdef DEBUG
+    UINT64 memval = read_uint((UINT8*)addr, size);
+    tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
+#endif
     if (mem.tainted && isRegisterTainted(reg)) {
-        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
         // mem <- reg
         addTaintBlock(addr, offset, size);
         // reg <- tmp
@@ -918,13 +919,11 @@ VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, AD
     }
     // reg <- tmp
     else if (mem.tainted) {
-        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
         taintRegister(reg, mem.offset, size);
         removeTaintBlock(addr, size);
     }
     // mem <- reg
     else if (isRegisterTainted(reg)) {
-        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
         addTaintBlock(addr, offset, size);
         clearRegister(reg, size);
     }
@@ -940,6 +939,7 @@ VOID traceXCHGRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, AD
  *    dst = eax
  *    zf = 0
  * }
+ * 这条只需要记录比较部分
  */
 /* temp cmpxchg handler */
 VOID traceCMPXCHGRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
@@ -964,19 +964,20 @@ VOID traceCMPXCHGRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opC
         UNREACHABLE();
     }
 
-    UINT64 raxval = 0;
-    PIN_GetContextRegval(ctx, rax, (UINT8*)&raxval);
+    UINT64 raxval = get_reg_value(ctx, rax);
+
+    // 只记录比较信息
+    if (isRegisterTainted(reg1) || isRegisterTainted(rax))
+        tracelog_regreg(insAddr, insDis, reg1, val1, rax, raxval, size);
 
     if (val1 == raxval) {
         if (isRegisterTainted(reg2)) {
-            tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
             taintRegister(reg1, getRegisterOffset(reg2), size);
         } else {
             clearRegister(reg1, size);
         }
     } else {
         if (isRegisterTainted(rax)) {
-            tracelog_regreg(insAddr, insDis, reg1, val1, rax, raxval, size);
             taintRegister(reg1, getRegisterOffset(rax), size);
         } else {
             clearRegister(reg1, size);
@@ -1009,23 +1010,23 @@ VOID traceCMPXCHGMemReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opC
         UNREACHABLE();
     }
 
-    UINT64 raxval = 0;
-    PIN_GetContextRegval(ctx, rax, (UINT8*) &raxval);
+    UINT64 raxval = get_reg_value(ctx, rax);
 
     MemBlock mem;
     initMemTaint(&mem, addr, size);
     UINT64 memval = read_uint((UINT8*)addr, size);
 
+    if (mem.tainted || isRegisterTainted(rax))
+        tracelog_memreg(insAddr, insDis, addr, memval, rax, raxval, size);
+
     if (memval == val2) {
         if (isRegisterTainted(reg2)) {
-            tracelog_memreg(insAddr, insDis, addr, memval, reg2, val2, size);
             addTaintBlock(addr, getRegisterOffset(reg2), size);
         } else {
             removeTaintBlock(addr, size);
         }
     } else {
         if (isRegisterTainted(rax)) {
-            tracelog_memreg(insAddr, insDis, addr, memval, rax, raxval, size);
             addTaintBlock(addr, getRegisterOffset(rax), size);
         } else {
             removeTaintBlock(addr, size);
@@ -1052,26 +1053,51 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT
 
 /**
  * jmp eax
+ * result 就是 eax 的值, result == val
  */
-void trace_jmpreg(ADDRINT addr, string const& disasm, REG reg, ADDRINT toaddr, UINT32 size)
+void trace_jmpreg(ADDRINT addr, string const& disasm, ADDRINT result, REG reg, UINT64 val, UINT32 size)
 {
+    BUG_ON(result != val);
     if (isRegisterTainted(reg)) {
-        tracelog_reg(addr, disasm, reg, toaddr, size);
+        tracelog_jmpreg(addr, disasm, result, reg, val, size);
     }
 }
 
 /**
  * jmp [eax+4*ebx+0x22]
+ * 这里的 result 是 eax+4*ebx+0x22 的值，不是 jmp 跳到的地址
+ * NOTE [rip+0x22] 寻址的不同，实际访问的地址
+ *      EffectiveAddress = rip + 0x22 + len(ins)
+ *      因为插桩在指令执行前，当前 rip 处于指令起始地址，
+ *      取指完成后 rip 指向下一条地址，此时寄存器 rip 为 rip_old + len(ins)
  */
-void trace_jmpmem(ADDRINT addr, string const& disasm, ADDRINT toaddr, REG base, REG idx, UINT32 size)
+void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx, ADDRINT result, REG base, REG idx, UINT32 scale, UINT64 disp, UINT32 inssize, UINT32 size)
 {
+    UINT64 bval = 0, ival = 0;
+    if (REG_valid(base)) {
+        bval = get_reg_value(ctx, base);
+        if (REG_RIP == base || REG_EIP == base || REG_IP == base)
+            bval += inssize;
+    }
+    if (REG_valid(idx))
+        ival = get_reg_value(ctx, idx);
+
+    printf("%lx: %s, result: %lx, bval: %lx, scale: %u, ival: %lx, disp: %lx\n",
+            addr, disasm.c_str(),
+            result, bval, scale, ival, disp);
+    printf("rip: %lx\n", get_reg_value(ctx, REG_RIP));
+    printf("sum: %lx\n", bval + scale * ival + disp);
+    printf("mem: %lx\n", *(UINT64*)result);
+    BUG_ON(!IS_POWER_OF2(scale));
+    BUG_ON(result != (bval + scale * ival + disp));
+
     if (REG_valid(base) && isRegisterTainted(base)) {
-        tracelog_reg(addr, disasm, base, 0xcccc, size);
+        tracelog_jmpmem(addr, disasm, result, base, bval, scale, idx, ival, disp, size);
         return;
     }
 
     if (REG_valid(idx) && isRegisterTainted(idx)) {
-        tracelog_reg(addr, disasm, idx, 0xcccc, size);
+        tracelog_jmpmem(addr, disasm, result, base, bval, scale, idx, ival, disp, size);
         return;
     }
 }

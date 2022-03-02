@@ -11,7 +11,7 @@
 #define IARG_INSADDR(ins)       IARG_ADDRINT, INS_Address(ins)
 #define IARG_NEXTADDR(ins)      IARG_ADDRINT, INS_Address(ins) + INS_Size(ins)
 #define IARG_DISASM(ins)        IARG_PTR, new std::string(INS_Disassemble(ins))
-#define IARG_REG(ins, opn)      IARG_UINT32, INS_RegR(ins, (opn))
+#define IARG_REG(ins, opn)      IARG_UINT32, INS_OperandReg(ins, (opn))
 #define IARG_REGVALUE(ins, opn) IARG_REG_VALUE, INS_RegR(ins, (opn))
 #define IARG_OPWIDTH(ins, opn)  IARG_UINT32, INS_OperandWidth(ins, (opn))/8
 #define IARG_OPIMM(ins, opn)    IARG_UINT64, INS_OperandImmediate(ins, (opn))
@@ -19,13 +19,15 @@
 #define IARG_WRMEMSIZE(ins)     IARG_UINT32, INS_MemoryWriteSize(ins)
 #define IARG_BASEREG(ins, opn)  IARG_UINT32, INS_OperandMemoryBaseReg(ins, (opn))
 #define IARG_INDEXREG(ins, opn) IARG_UINT32, INS_OperandMemoryIndexReg(ins, (opn))
+#define IARG_SCALE(ins, opn)    IARG_UINT32, INS_OperandMemoryScale(ins, (opn))
+#define IARG_DISPLACEMENT(ins, opn) IARG_UINT32, INS_OperandMemoryDisplacement(ins, (opn))
 
 #if 0
 static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
 {
     printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
 }
-    INS_InsertCall(
+INS_InsertCall(
             ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
             IARG_INSADDR(ins),
             IARG_DISASM(ins),
@@ -38,8 +40,7 @@ VOID Instruction(INS ins, VOID *v)
 {
     if(!isTaintStart)
         return;
-
-    xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
+     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
 
     switch (ins_indx) {
     // 复制 DS:SI -> ES:DI
@@ -134,6 +135,7 @@ VOID Instruction(INS ins, VOID *v)
             INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpreg,
                     IARG_INSADDR(ins),
                     IARG_DISASM(ins),
+                    IARG_REGVALUE(ins, OP_0),
                     IARG_REG(ins, OP_0),
                     IARG_REGVALUE(ins, OP_0),
                     IARG_OPWIDTH(ins, OP_0),
@@ -146,9 +148,13 @@ VOID Instruction(INS ins, VOID *v)
             INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpmem,
                     IARG_INSADDR(ins),
                     IARG_DISASM(ins),
+                    IARG_CONTEXT,
                     IARG_MEMORYREAD_EA,
                     IARG_BASEREG(ins, OP_0),
                     IARG_INDEXREG(ins, OP_0),
+                    IARG_SCALE(ins, OP_0),
+                    IARG_DISPLACEMENT(ins, OP_0),
+                    IARG_UINT32, INS_Size(ins),
                     IARG_RDMEMSIZE(ins),
                     IARG_END);
         }
@@ -1347,9 +1353,13 @@ VOID Instruction(INS ins, VOID *v)
                     ins, IPOINT_BEFORE, (AFUNPTR)taint_lea_mem,
                     IARG_ADDRINT, INS_Address(ins),
                     IARG_PTR, new string(INS_Disassemble(ins)),
-                    IARG_UINT32, INS_RegW(ins, OP_0),
-                    IARG_UINT32, INS_OperandMemoryBaseReg(ins, OP_1),
-                    IARG_UINT32, INS_OperandMemoryIndexReg(ins, OP_1),
+                    IARG_CONTEXT,
+                    IARG_REG(ins, OP_0),        // dst
+                    IARG_BASEREG(ins, OP_1),
+                    IARG_INDEXREG(ins, OP_1),
+                    IARG_SCALE(ins, OP_1),
+                    IARG_DISPLACEMENT(ins, OP_1),
+                    IARG_UINT32, INS_Size(ins),
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                     IARG_END);
         } else {
