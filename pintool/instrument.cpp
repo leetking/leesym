@@ -341,6 +341,7 @@ Register* getTaintRegister(REG reg)
 
 bool isRegisterOffsetTainted(REG reg, UINT32 offset)
 {
+    //printf("offset: %d, regsize: %d %s\n", offset, REG_Size(reg), REG_StringShort(reg).c_str());
     BUG_ON(reg == REGISTER_INVALID);
     BUG_ON(offset >= REG_Size(reg));
 

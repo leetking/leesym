@@ -1,10 +1,14 @@
 #include "instrument.hpp"
 #include "trace.hpp"
 
+using namespace std;
+
 ofstream trace;
 
 void dump_reg_offset(REG reg, UINT32 size)
 {
+    // trick for, shl eax, cl 这类指令
+    size = min(size, REG_Size(reg));
     trace << "{";
     if (isRegisterTainted(reg)) {
         UINT64 const* offset = getRegisterOffset(reg);
@@ -48,6 +52,7 @@ void dump_addr(UINT8 const* addr, UINT32 size)
 //trace reg
 void tracelog_reg(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, UINT64 size)
 {
+    size = MIN(size, REG_Size(reg));
     // 0xabcd.{0x0,0x1,}.ffff.
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_reg_offset(reg, size);
@@ -59,12 +64,13 @@ void tracelog_reg(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, UIN
 //trace reg imm
 void tracelog_regimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, UINT64 imm, UINT64 size)
 {
+    UINT32 regsize = MIN(size, REG_Size(reg));
     // 0xabcd.{0x0,0x1,}.aaaa.ffff.
     trace << hex << "0x" << insAddr << "." << insDis << ".";
-    dump_reg_offset(reg, size);
+    dump_reg_offset(reg, regsize);
     trace << ".";
 
-    dump_value(val, size);
+    dump_value(val, regsize);
     trace << ".";
 
     dump_value(imm, size);
@@ -74,31 +80,36 @@ void tracelog_regimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, 
 //trace reg reg
 void tracelog_regreg(UINT64 insAddr, string const& insDis, REG reg1, UINT64 val1, REG reg2, UINT64 val2, UINT64 size)
 {
+    UINT32 r1size = MIN(size, REG_Size(reg1));
+    UINT32 r2size = MIN(size, REG_Size(reg2));
     // 0xabcd.{0x0,0x1,}.{0x3,0x4}.aaaa.ffff.
     trace << hex << "0x" << insAddr << "." << insDis << ".";
-    dump_reg_offset(reg1, size);
-    dump_reg_offset(reg2, size);
+    dump_reg_offset(reg1, r1size);
+    dump_reg_offset(reg2, r2size);
     trace << ".";
 
-    dump_value(val1, size);
+    dump_value(val1, r1size);
     trace << ".";
 
-    dump_value(val2, size);
+    dump_value(val2, r2size);
     trace << "." << endl;
 }
 
 //trace reg reg imm
 void tracelog_regregimm(UINT64 insAddr, string const& insDis, REG reg1, UINT64 val1, REG reg2, UINT64 val2, UINT64 imm, UINT64 size)
 {
+    UINT32 r1size = MIN(size, REG_Size(reg1));
+    UINT32 r2size = MIN(size, REG_Size(reg2));
+
     trace << hex << "0x" << insAddr << "." << insDis << ".";
-    dump_reg_offset(reg1, size);
-    dump_reg_offset(reg2, size);
+    dump_reg_offset(reg1, r1size);
+    dump_reg_offset(reg2, r2size);
     trace << ".";
 
-    dump_value(val1, size);
+    dump_value(val1, r1size);
     trace << ".";
 
-    dump_value(val2, size);
+    dump_value(val2, r2size);
     trace << ".";
 
     dump_value(imm, size);
@@ -108,13 +119,14 @@ void tracelog_regregimm(UINT64 insAddr, string const& insDis, REG reg1, UINT64 v
 //trace reg mem imm
 void tracelog_regmemimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val1, ADDRINT addr, UINT64 val2, UINT64 imm, UINT64 size)
 {
+    UINT32 regsize = MIN(size, REG_Size(reg));
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
-    dump_reg_offset(reg, size);
+    dump_reg_offset(reg, regsize);
     dump_mem_offset(addr, size);
     trace << ".";
 
-    dump_value(val1, size);
+    dump_value(val1, regsize);
     trace << ".";
 
     dump_value(val2, size);
@@ -143,16 +155,17 @@ void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, UINT64 val1,
 //trace mem reg
 void tracelog_memreg(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 val1, REG reg, UINT64 val2, UINT64 size)
 {
+    UINT32 regsize = MIN(size, REG_Size(reg));
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
     dump_mem_offset(addr, size);
-    dump_reg_offset(reg, size);
+    dump_reg_offset(reg, regsize);
     trace << ".";
 
     dump_value(val1, size);
     trace << ".";
 
-    dump_value(val2, size);
+    dump_value(val2, regsize);
     trace << "." << endl;
 }
 

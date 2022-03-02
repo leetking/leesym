@@ -152,23 +152,25 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_RDMEMSIZE(ins),
                     IARG_END);
         }
+#if 0
         // 不同于 lea eax, [ebx+4*ecx+0x42] 这是 Addr Gen, jmp 的为内存操作数
-        //else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
-        //}
+        else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
+        }
         // jmp 0xdeadbeef, 不可能被污染，不记录
-        //else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
-            //INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
-                    //IARG_INSADDR(ins),
-                    //IARG_DISASM(ins),
-                    //IARG_END);
-        //}
-        //else {
-        //    INS_InsertCall(
-        //            ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-        //            IARG_INSADDR(ins),
-        //            IARG_DISASM(ins),
-        //            IARG_END);
-        //}
+        else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_END);
+        }
+        else {
+            INS_InsertCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_END);
+        }
+#endif
         break;
 
     /* TODO */

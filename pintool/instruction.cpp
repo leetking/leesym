@@ -277,7 +277,7 @@ VOID taintLEA(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 si
  * idx: ebx
  * dst: ecx
  */
-VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx, REG dst, REG base, REG idx, UINT32 size)
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, REG dst, REG base, REG idx, UINT32 size)
 {
     BUG_ON(size > REGISTER_WIDTH);
     // idx 优先级大于 base, idx 更有价值
@@ -305,7 +305,6 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx, REG dst, RE
     if (REG_valid(idx)) {
         UINT64 const* offset = getRegisterOffset(idx);
         if (isRegisterTainted(idx)) {
-            printf("%lx: %s idx is tainted: %d\n", addr, disasm.c_str(), isRegisterTainted(idx));
             tracelog_regreg(addr, disasm, dst, 0xcccc, idx, 0xcccc, size);
             taintRegister(dst, offset, size);
         }
