@@ -304,6 +304,9 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
     if (REG_valid(idx)) {
         UINT64 const* offset = getRegisterOffset(idx);
         if (isRegisterTainted(idx)) {
+            // TODO lea edx, ptr [rcx-0x1], 指令处理不合理
+            // rcx-0x1 按照 64 位处理，然后截取低32位给 edx,
+            // 这里不处理把，后续再分析中处理 {,,,,} 的问题
             tracelog_leamem(addr, disasm, base, bval, scale, idx, ival, disp, size);
             taintRegister(dst, offset, size);
         }
@@ -611,6 +614,9 @@ void shl_reg(REG reg, UINT32 shift, UINT32 size)
     BUG_ON(size == 0);
     BUG_ON(size > REGISTER_WIDTH);
     BUG_ON(!isRegisterTainted(reg));
+    // 非字节偏移，认为没有操作，同样依赖完整输入
+    if (shift%8 != 0)
+        return;
     // 按照字节的移位
     UINT64 offset[REGISTER_WIDTH];
     UINT64 const* offreg = getRegisterOffset(reg);
@@ -630,6 +636,8 @@ void shl_mem(ADDRINT addr, MemBlock* mem, UINT32 shift, UINT32 size)
 {
     BUG_ON(size == 0);
     BUG_ON(size > REGISTER_WIDTH);
+    if (shift%8 != 0)
+        return;
     // 按照字节的移位
     UINT64* offset = mem->offset;
     shift = (shift/8) + ((shift%8) >= 4);
@@ -705,6 +713,8 @@ static
 void shr_reg(REG reg, UINT32 shift, UINT32 size)
 {
     BUG_ON(!isRegisterTainted(reg));
+    if (shift%8 != 0)
+        return;
     // 按照字节的移位
     UINT64 offset[REGISTER_WIDTH];
     UINT64 const* offreg = getRegisterOffset(reg);
@@ -722,6 +732,8 @@ void shr_reg(REG reg, UINT32 shift, UINT32 size)
 static
 void shr_mem(ADDRINT addr, MemBlock* mem, UINT32 shift, UINT32 size)
 {
+    if (shift%8 != 0)
+        return;
     UINT64* offset = mem->offset;
     shift = (shift/8) + ((shift%8) >= 4);
     shift = min(size, shift);

@@ -873,9 +873,9 @@ VOID Instruction(INS ins, VOID *v)
 
         break;
 
-    case XED_ICLASS_RCL:
+    case XED_ICLASS_RCL:    // 把进位看作寄存器最高位一起参与循环左移
     case XED_ICLASS_RCR:
-    case XED_ICLASS_ROL:
+    case XED_ICLASS_ROL:    // 循环左移位
     case XED_ICLASS_ROR:
         if(INS_MemoryOperandCount(ins) == 0){
             if(!INS_OperandIsImmediate(ins, OP_1)){

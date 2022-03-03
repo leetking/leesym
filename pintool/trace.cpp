@@ -281,6 +281,8 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
     UINT32 bsize = size;
     UINT32 isize = size;
     trace << hex << "0x" << insaddr << "." << insdis << ".";
+    dump_value(result, size);
+    trace << ".";
     if (REG_valid(base)) {
         bsize = min(size, REG_Size(base));
         dump_reg_offset(base, bsize);
