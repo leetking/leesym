@@ -309,8 +309,8 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
             // 这里不处理把，后续再分析中处理 {,,,,} 的问题
             tracelog_leamem(addr, disasm, base, bval, scale, idx, ival, disp, size);
             taintRegister(dst, offset, size);
+            return;
         }
-        return;
     }
 
     if (REG_valid(base)) {
@@ -318,8 +318,8 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
         if (isRegisterTainted(base)) {
             tracelog_leamem(addr, disasm, base, bval, scale, idx, ival, disp, size);
             taintRegister(dst, offset, size);
+            return;
         }
-        return;
     }
     // 寄存器未被污染信息，直接清除
     clearRegister(dst, size);
