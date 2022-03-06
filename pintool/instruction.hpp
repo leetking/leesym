@@ -60,6 +60,7 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
 void trace_jmpreg(ADDRINT addr, string const& disasm, ADDRINT result, REG reg, UINT64 val, UINT32 size);
 void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
         ADDRINT result, REG base, REG idx, UINT32 scale, UINT64 disp, UINT32 inssize, UINT32 size);
+void trace_condjmp(ADDRINT addr, string const& disasm);
 
 
 #endif

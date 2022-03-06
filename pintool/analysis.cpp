@@ -129,6 +129,31 @@ VOID Instruction(INS ins, VOID *v)
         }
         break;
 
+    case XED_ICLASS_JB:     // <
+    case XED_ICLASS_JBE:    // <=
+    case XED_ICLASS_JCXZ:
+    case XED_ICLASS_JECXZ:
+    case XED_ICLASS_JL:     // <
+    case XED_ICLASS_JLE:    // <=
+    case XED_ICLASS_JNB:    // <=
+    case XED_ICLASS_JNBE:   // >
+    case XED_ICLASS_JNL:    // >=
+    case XED_ICLASS_JNLE:   // >
+    case XED_ICLASS_JNO:
+    case XED_ICLASS_JNP:
+    case XED_ICLASS_JNS:
+    case XED_ICLASS_JNZ:
+    case XED_ICLASS_JO:
+    case XED_ICLASS_JP:
+    case XED_ICLASS_JRCXZ:
+    case XED_ICLASS_JS:
+    case XED_ICLASS_JZ:
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_condjmp,
+                IARG_INSADDR(ins),
+                IARG_DISASM(ins),
+                IARG_END);
+        break;
+    //case XED_ICLASS_JMP_FAR:
     case XED_ICLASS_JMP:
         // jmp eax
         if (INS_OperandIsReg(ins, OP_0)) {
@@ -183,9 +208,6 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_CALL_FAR:
     case XED_ICLASS_CALL_NEAR:
 
-    case XED_ICLASS_JB:
-    case XED_ICLASS_JBE:
-
     case XED_ICLASS_LEAVE:
 
     case XED_ICLASS_RET_NEAR:
@@ -226,7 +248,7 @@ VOID Instruction(INS ins, VOID *v)
                         IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                         IARG_END);
                 }
-            } 
+            }
             // cmp reg, imm
             else{
                 if(REG_is_xmm_ymm_zmm(INS_RegR(ins, OP_0)) || REG_is_mm(INS_RegR(ins, OP_0))){

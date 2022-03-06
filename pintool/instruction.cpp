@@ -10,6 +10,8 @@
 
 using namespace std;
 
+bool cmp_tainted = false;
+
 static inline
 UINT64 read_uint(UINT8 const* addr, UINT32 size)
 {
@@ -327,8 +329,10 @@ VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
 
 VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
+    if (isRegisterTainted(reg1) || isRegisterTainted(reg2)) {
+        cmp_tainted = true;
         tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+    }
 }
 
 VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, REG reg2, UINT32 size)
@@ -342,14 +346,18 @@ VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     val1 = get_reg_value(ctx, reg1);
     val2 = get_reg_value(ctx, reg2);
 
-    if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
+    if (isRegisterTainted(reg1) || isRegisterTainted(reg2)) {
+        cmp_tainted = true;
         tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+    }
 }
 
 VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
 {
-    if (isRegisterTainted(reg))
+    if (isRegisterTainted(reg)) {
+        cmp_tainted = true;
         tracelog_regimm(insAddr, insDis, reg, val, imm, size);
+    }
 }
 
 VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, ADDRINT addr, UINT32 size)
@@ -361,6 +369,7 @@ VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADD
     initMemTaint(&mem, addr, size);
 
     if (isRegisterTainted(reg) || mem.tainted) {
+        cmp_tainted = true;
         UINT64 memval = read_uint((UINT8*)addr, size);
         tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
     }
@@ -376,6 +385,7 @@ VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     initMemTaint(&mem, addr, size);
 
     if (isRegisterTainted(reg) || mem.tainted) {
+        cmp_tainted = true;
         UINT64 memval = read_uint((UINT8*)addr, size);
         tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
     }
@@ -389,6 +399,7 @@ VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
     MemBlock mem;
     initMemTaint(&mem, addr, size);
     if (isRegisterTainted(reg) || mem.tainted) {
+        cmp_tainted = true;
         UINT64 memval = read_uint((UINT8*)addr, size);
         tracelog_memreg(insAddr, insDis, addr, memval, reg, memval, size);
     }
@@ -402,6 +413,7 @@ VOID traceCMPMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
     initMemTaint(&mem, addr, size);
 
     if (mem.tainted) {
+        cmp_tainted = true;
         UINT64 memval = read_uint((UINT8*)addr, size);
         tracelog_memimm(insAddr, insDis, addr, memval, imm, size);
     }
@@ -416,8 +428,10 @@ VOID traceCMPS(ADDRINT insAddr, string insDis, UINT32 opCount, BOOL isFirst , AD
     MemBlock mem2;
     initMemTaint(&mem1, addr1, &mem2, addr2, size, count);
 
-    if (mem1.tainted || mem2.tainted)
+    if (mem1.tainted || mem2.tainted) {
+        cmp_tainted = true;
         tracelog_memmem_addr(insAddr, insDis, addr1, addr2, size * count);
+    }
 }
 
 VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
@@ -1102,4 +1116,15 @@ void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx, ADDRINT resu
         tracelog_jmpmem(addr, disasm, result, base, bval, scale, idx, ival, disp, size);
         return;
     }
+}
+
+/**
+ * 条件跳转指令的记录，只需要名字即可
+ */
+void trace_condjmp(ADDRINT addr, string const& disasm)
+{
+        if (cmp_tainted) {
+            cmp_tainted = false;
+            tracelog_ins(addr, disasm);
+        }
 }

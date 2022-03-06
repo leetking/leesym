@@ -30,5 +30,6 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
         REG idx, UINT64 ival,
         UINT64 disp,
         UINT32 size);
+void tracelog_ins(UINT64 insaddr, string const& insdis);
 
 #endif

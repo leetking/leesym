@@ -307,6 +307,12 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
     trace << "." << endl;
 }
 
+void tracelog_ins(UINT64 insaddr, string const& insdis)
+{
+    trace << hex << "0x" << insaddr << "." << insdis << ".";
+    trace << endl;
+}
+
 #if 0
 //trace reg reg SIMD
 // TODO 什么是 reg mem SIMD
