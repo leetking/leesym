@@ -1,5 +1,8 @@
-#include "instrument.hpp"
-#include "trace.hpp"
+#include <algorithm>
+#include <iostream>
+
+#include "instrument.hh"
+#include "trace.hh"
 
 using namespace std;
 
