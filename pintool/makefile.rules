@@ -78,6 +78,6 @@ SANITY_SUBSET := $(TEST_TOOL_ROOTS) $(TEST_ROOTS)
 # This section contains the build rules for all binaries that have special build rules.
 # See makefile.default.rules for the default build rules.
 $(OBJDIR)%$(OBJ_SUFFIX): %.cc
-	$(CXX) $(TOOL_CXXFLAGS) $(COMP_OBJ)$@ $<
+	$(CXX) -std=c++11 $(TOOL_CXXFLAGS) $(COMP_OBJ)$@ $<
 $(OBJDIR)$(TEST_TOOL_ROOTS)$(PINTOOL_SUFFIX): $(OBJS)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $(OBJS) $(TOOL_LPATHS) $(TOOL_LIBS)
