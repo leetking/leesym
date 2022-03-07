@@ -1,5 +1,5 @@
-#ifndef INTRIGUER_EXECUTION_MONITOR_HPP_
-#define INTRIGUER_EXECUTION_MONITOR_HPP_
+#ifndef EXECUTION_HH__
+#define EXECUTION_HH__
 
 #include <fstream>
 #include <string>
@@ -9,4 +9,4 @@ extern std::string targetFileName;
 
 int main(int argc, char *argv[]);
 
-#endif /* INTRIGUER_EXECUTION_MONITOR_HPP_ */
+#endif /* EXECUTION_HH__ */

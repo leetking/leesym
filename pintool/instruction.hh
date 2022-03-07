@@ -1,7 +1,9 @@
-#ifndef INTRIGUER_INSTRUCTION_HPP_
-#define INTRIGUER_INSTRUCTION_HPP_
+#ifndef INSTRUCTION_HH__
+#define INSTRUCTION_HH__
 
 #include "pin.H"
+
+extern ofstream logfile;
 
 VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, UINT32 readSize, ADDRINT memOp2, UINT32 writeSize);
 VOID taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, REG reg2, ADDRINT val, UINT32 size);
@@ -53,6 +55,12 @@ VOID traceBSWAP(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRIN
 
 VOID traceUnsupport(ADDRINT insAddr, std::string insDis);
 
-extern ofstream logfile;
+VOID taint_lea_mem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
+        REG dst, REG base, REG idx, UINT32 scale, UINT64 disp, UINT32 inssize, UINT32 size);
+void trace_jmpreg(ADDRINT addr, string const& disasm, ADDRINT result, REG reg, UINT64 val, UINT32 size);
+void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
+        ADDRINT result, REG base, REG idx, UINT32 scale, UINT64 disp, UINT32 inssize, UINT32 size);
+void trace_condjmp(ADDRINT addr, string const& disasm);
 
-#endif
+
+#endif // INSTRUCTION_HH__

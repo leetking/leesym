@@ -4,20 +4,16 @@
 #include <iostream>
 #include <fstream>
 
-#if !defined(TARGET_WINDOWS)
+#ifndef TARGET_WINDOWS
 # include <sys/syscall.h>
 #endif
 
-// this file is from intel PIN
-#include <iomanip>
-#include "pin.H"
-
-#include "executionMonitor.hpp"
-#include "instruction.hpp"
-#include "syscall.hpp"
-#include "instrument.hpp"
-#include "analysis.hpp"
-#include "trace.hpp"
+#include "execution.hh"
+#include "instruction.hh"
+#include "syscall.hh"
+#include "instrument.hh"
+#include "analysis.hh"
+#include "trace.hh"
 
 using namespace std;
 

@@ -1,5 +1,5 @@
-#ifndef INTRIGURE_ANALYSIS_HPP_
-#define INTRIGURE_ANALYSIS_HPP_
+#ifndef ANALYSIS_HH__
+#define ANALYSIS_HH__
 
 #include "pin.H"
 
@@ -12,4 +12,4 @@ VOID Instruction(INS ins, VOID *v);
 
 extern bool isTaintStart;
 
-#endif
+#endif // ANALYSIS_HH__

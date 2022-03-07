@@ -17,7 +17,7 @@
 # This defines tests which run tools of the same name.  This is simply for convenience to avoid
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
-TEST_TOOL_ROOTS := executionMonitor
+TEST_TOOL_ROOTS := taint
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=
@@ -46,10 +46,10 @@ DLL_ROOTS :=
 # This defines any static libraries (archives), that need to be built.
 LIB_ROOTS :=
 
-GENCODE := $(patsubst codegen/gen_%.py, %__gen.cpp, $(wildcard codegen/*.py))
+GENCODE := $(patsubst codegen/gen_%.py, %__gen.cc, $(wildcard codegen/*.py))
 OBJDIRS := $(OBJDIR)
-SRCS := $(sort $(wildcard *.cpp) $(GENCODE))
-OBJS := $(patsubst %.cpp, $(OBJDIR)%$(OBJ_SUFFIX), $(SRCS))
+SRCS := $(sort $(wildcard *.cc) $(GENCODE))
+OBJS := $(patsubst %.cc, $(OBJDIR)%$(OBJ_SUFFIX), $(SRCS))
 
 ###### Define the sanity subset ######
 
@@ -77,5 +77,7 @@ SANITY_SUBSET := $(TEST_TOOL_ROOTS) $(TEST_ROOTS)
 
 # This section contains the build rules for all binaries that have special build rules.
 # See makefile.default.rules for the default build rules.
+$(OBJDIR)%$(OBJ_SUFFIX): %.cc
+	$(CXX) $(TOOL_CXXFLAGS) $(COMP_OBJ)$@ $<
 $(OBJDIR)$(TEST_TOOL_ROOTS)$(PINTOOL_SUFFIX): $(OBJS)
 	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $(OBJS) $(TOOL_LPATHS) $(TOOL_LIBS)

@@ -1,16 +1,46 @@
+#include <cstdio>
+
 #include <iostream>
 
-#include "analysis.hpp"
-#include "instruction.hpp"
-#include "syscall.hpp"
+#include <unistd.h>
+
+#include "analysis.hh"
+#include "instruction.hh"
+#include "syscall.hh"
+
+#define IARG_INSADDR(ins)       IARG_ADDRINT, INS_Address(ins)
+#define IARG_NEXTADDR(ins)      IARG_ADDRINT, INS_Address(ins) + INS_Size(ins)
+#define IARG_DISASM(ins)        IARG_PTR, new std::string(INS_Disassemble(ins))
+#define IARG_REG(ins, opn)      IARG_UINT32, INS_OperandReg(ins, (opn))
+#define IARG_REGVALUE(ins, opn) IARG_REG_VALUE, INS_RegR(ins, (opn))
+#define IARG_OPWIDTH(ins, opn)  IARG_UINT32, INS_OperandWidth(ins, (opn))/8
+#define IARG_OPIMM(ins, opn)    IARG_UINT64, INS_OperandImmediate(ins, (opn))
+#define IARG_RDMEMSIZE(ins)     IARG_UINT32, INS_MemoryReadSize(ins)
+#define IARG_WRMEMSIZE(ins)     IARG_UINT32, INS_MemoryWriteSize(ins)
+#define IARG_BASEREG(ins, opn)  IARG_UINT32, INS_OperandMemoryBaseReg(ins, (opn))
+#define IARG_INDEXREG(ins, opn) IARG_UINT32, INS_OperandMemoryIndexReg(ins, (opn))
+#define IARG_SCALE(ins, opn)    IARG_UINT32, INS_OperandMemoryScale(ins, (opn))
+#define IARG_DISPLACEMENT(ins, opn) IARG_UINT32, INS_OperandMemoryDisplacement(ins, (opn))
+
+#if 0
+static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
+{
+    printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
+}
+INS_InsertCall(
+            ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+            IARG_INSADDR(ins),
+            IARG_DISASM(ins),
+            IARG_UINT32, INS_OperandCount(ins),
+            IARG_END);
+#endif
 
 // v 是用户自行传入的数据，这里没有使用
 VOID Instruction(INS ins, VOID *v)
 {
     if(!isTaintStart)
         return;
-
-    xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
+     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
 
     switch (ins_indx) {
     // 复制 DS:SI -> ES:DI
@@ -28,7 +58,7 @@ VOID Instruction(INS ins, VOID *v)
             IARG_UINT32, INS_OperandCount(ins),
             // 指令操作读内存的地址
             IARG_MEMORYREAD_EA,
-            // 这条指令读取内存的大小, 1, 2, 4 or 8 B, 和指令一致
+            // 这条指令读取内存的大小, 1, 2, 4 or 8 B, 不一定和指令一致
             IARG_UINT32, INS_MemoryReadSize(ins),
             // 指令操作写内存的地址
             IARG_MEMORYWRITE_EA,
@@ -99,21 +129,89 @@ VOID Instruction(INS ins, VOID *v)
         }
         break;
 
+    case XED_ICLASS_JB:     // <
+    case XED_ICLASS_JBE:    // <=
+    case XED_ICLASS_JCXZ:
+    case XED_ICLASS_JECXZ:
+    case XED_ICLASS_JL:     // <
+    case XED_ICLASS_JLE:    // <=
+    case XED_ICLASS_JNB:    // <=
+    case XED_ICLASS_JNBE:   // >
+    case XED_ICLASS_JNL:    // >=
+    case XED_ICLASS_JNLE:   // >
+    case XED_ICLASS_JNO:
+    case XED_ICLASS_JNP:
+    case XED_ICLASS_JNS:
+    case XED_ICLASS_JNZ:
+    case XED_ICLASS_JO:
+    case XED_ICLASS_JP:
+    case XED_ICLASS_JRCXZ:
+    case XED_ICLASS_JS:
+    case XED_ICLASS_JZ:
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_condjmp,
+                IARG_INSADDR(ins),
+                IARG_DISASM(ins),
+                IARG_END);
+        break;
+    //case XED_ICLASS_JMP_FAR:
+    case XED_ICLASS_JMP:
+        // jmp eax
+        if (INS_OperandIsReg(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpreg,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_REGVALUE(ins, OP_0),
+                    IARG_REG(ins, OP_0),
+                    IARG_REGVALUE(ins, OP_0),
+                    IARG_OPWIDTH(ins, OP_0),
+                    IARG_END);
+        }
+        // jmp [reg1 + scale * reg2 + disp], 寻址
+        // jmp [base + scale * index + disp]
+        // jmp [rip + disp]
+        else if (INS_OperandIsMemory(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)trace_jmpmem,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_CONTEXT,
+                    IARG_MEMORYREAD_EA,
+                    IARG_BASEREG(ins, OP_0),
+                    IARG_INDEXREG(ins, OP_0),
+                    IARG_SCALE(ins, OP_0),
+                    IARG_DISPLACEMENT(ins, OP_0),
+                    IARG_UINT32, INS_Size(ins),
+                    IARG_RDMEMSIZE(ins),
+                    IARG_END);
+        }
+#if 0
+        // 不同于 lea eax, [ebx+4*ecx+0x42] 这是 Addr Gen, jmp 的为内存操作数
+        else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
+        }
+        // jmp 0xdeadbeef, 不可能被污染，不记录
+        else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_END);
+        }
+        else {
+            INS_InsertCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+                    IARG_INSADDR(ins),
+                    IARG_DISASM(ins),
+                    IARG_END);
+        }
+#endif
+        break;
+
     /* TODO */
     case XED_ICLASS_CALL_FAR:
     case XED_ICLASS_CALL_NEAR:
-
-    case XED_ICLASS_JMP:
 
     case XED_ICLASS_LEAVE:
 
     case XED_ICLASS_RET_NEAR:
     case XED_ICLASS_RET_FAR:
-        INS_InsertCall(
-                ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-                IARG_ADDRINT, INS_Address(ins),
-                IARG_PTR, new string(INS_Disassemble(ins)),
-                IARG_END);
         break;
 
     case XED_ICLASS_NOP:
@@ -150,7 +248,7 @@ VOID Instruction(INS ins, VOID *v)
                         IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                         IARG_END);
                 }
-            } 
+            }
             // cmp reg, imm
             else{
                 if(REG_is_xmm_ymm_zmm(INS_RegR(ins, OP_0)) || REG_is_mm(INS_RegR(ins, OP_0))){
@@ -269,7 +367,7 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_RegR(ins, OP_1),
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                     IARG_END);
-            } 
+            }
             else{
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
@@ -277,8 +375,8 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_END);
             }
-        } 
-        else {            
+        }
+        else {
             // pcmpeq reg, mem
             if(INS_OperandIsReg(ins, OP_0)){
                 INS_InsertCall(
@@ -797,9 +895,9 @@ VOID Instruction(INS ins, VOID *v)
 
         break;
 
-    case XED_ICLASS_RCL:
+    case XED_ICLASS_RCL:    // 把进位看作寄存器最高位一起参与循环左移
     case XED_ICLASS_RCR:
-    case XED_ICLASS_ROL:
+    case XED_ICLASS_ROL:    // 循环左移位
     case XED_ICLASS_ROR:
         if(INS_MemoryOperandCount(ins) == 0){
             if(!INS_OperandIsImmediate(ins, OP_1)){
@@ -1272,14 +1370,30 @@ VOID Instruction(INS ins, VOID *v)
     /* just untaint register */
     /* TODO */
     case XED_ICLASS_LEA:
-        INS_InsertPredicatedCall(
-            ins, IPOINT_BEFORE, (AFUNPTR)taintLEA,
-            IARG_ADDRINT, INS_Address(ins),
-            IARG_PTR, new string(INS_Disassemble(ins)),
-            IARG_UINT32, INS_OperandCount(ins),
-            IARG_UINT32, INS_RegW(ins, OP_0),
-            IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
-            IARG_END);
+        if (INS_OperandCount(ins) >= 2 && INS_OperandIsAddressGenerator(ins, OP_1)) {
+            INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)taint_lea_mem,
+                    IARG_ADDRINT, INS_Address(ins),
+                    IARG_PTR, new string(INS_Disassemble(ins)),
+                    IARG_CONTEXT,
+                    IARG_REG(ins, OP_0),        // dst
+                    IARG_BASEREG(ins, OP_1),
+                    IARG_INDEXREG(ins, OP_1),
+                    IARG_SCALE(ins, OP_1),
+                    IARG_DISPLACEMENT(ins, OP_1),
+                    IARG_UINT32, INS_Size(ins),
+                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
+                    IARG_END);
+        } else {
+            INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, (AFUNPTR)taintLEA,
+                    IARG_ADDRINT, INS_Address(ins),
+                    IARG_PTR, new string(INS_Disassemble(ins)),
+                    IARG_UINT32, INS_OperandCount(ins),
+                    IARG_UINT32, INS_RegW(ins, OP_0),
+                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
+                    IARG_END);
+        }
 
         break;
 
