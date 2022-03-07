@@ -4,11 +4,11 @@
 #include <fstream>
 #include <list>
 
-#if !defined(TARGET_WINDOWS)
+#ifndef TARGET_WINDOWS
 #include <sys/syscall.h>
 #endif
 
-#include "instrument.hpp"
+#include "instrument.hh"
 #include "common.h"         // import BUG_ON
 
 using namespace std;

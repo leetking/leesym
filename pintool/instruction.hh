@@ -1,5 +1,5 @@
-#ifndef INTRIGUER_INSTRUCTION_HPP_
-#define INTRIGUER_INSTRUCTION_HPP_
+#ifndef INSTRUCTION_HH__
+#define INSTRUCTION_HH__
 
 #include "pin.H"
 
@@ -63,4 +63,4 @@ void trace_jmpmem(ADDRINT addr, string const& disasm, CONTEXT* ctx,
 void trace_condjmp(ADDRINT addr, string const& disasm);
 
 
-#endif
+#endif // INSTRUCTION_HH__

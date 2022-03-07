@@ -1,5 +1,5 @@
-#ifndef INTRIGUER_INSTRUMENT_HPP_
-#define INTRIGUER_INSTRUMENT_HPP_
+#ifndef INSTRUMENT_HH__
+#define INSTRUMENT_HH__
 
 #include "pin.H"
 
@@ -110,4 +110,4 @@ void clearRegister(REG reg, UINT32 size);
 // TODO remove below interfaces
 Register* getTaintRegister(REG reg);
 
-#endif
+#endif // INSTRUMENT_HH__

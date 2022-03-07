@@ -1,5 +1,5 @@
-#ifndef INTRIGUER_TRACE_HPP_
-#define INTRIGUER_TRACE_HPP_
+#ifndef TRACE_HH__
+#define TRACE_HH__
 
 #include <string>
 
@@ -32,4 +32,4 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
         UINT32 size);
 void tracelog_ins(UINT64 insaddr, string const& insdis);
 
-#endif
+#endif // TRACE_HH__

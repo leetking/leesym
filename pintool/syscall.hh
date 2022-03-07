@@ -1,5 +1,5 @@
-#ifndef INTRIGUER_SYSCALL_HPP_
-#define INTRIGUER_SYSCALL_HPP_
+#ifndef SYSCALL_HH__
+#define SYSCALL_HH__
 
 #include "pin.H"
 
@@ -15,6 +15,4 @@ VOID SyscallEntry(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOI
 
 VOID SyscallExit(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v);
 
-void doStdin();
-
-#endif
+#endif // SYSCALL_HH__

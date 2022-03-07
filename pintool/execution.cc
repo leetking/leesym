@@ -38,16 +38,16 @@ END_LEGAL */
 #include <fstream>
 #include <iomanip>
 
-#if !defined(TARGET_WINDOWS)
-#include <sys/syscall.h>
+#ifndef TARGET_WINDOWS
+# include <sys/syscall.h>
 #endif
 
-#include "executionMonitor.hpp"
-#include "instruction.hpp"
-#include "syscall.hpp"
-#include "instrument.hpp"
-#include "analysis.hpp"
-#include "trace.hpp"
+#include "execution.hh"
+#include "instruction.hh"
+#include "syscall.hh"
+#include "instrument.hh"
+#include "analysis.hh"
+#include "trace.hh"
 
 using namespace std;
 
@@ -89,10 +89,6 @@ int main(int argc, char *argv[])
 
     logfile.open(logFileName.c_str());
     trace.open(outputFileName.c_str());
-
-    if(!strcmp("stdin_", KnobTargetFile.Value().c_str())){
-        doStdin();
-    }
 
     // Intel 汇编语法
     PIN_SetSyntaxIntel();

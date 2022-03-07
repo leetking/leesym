@@ -4,9 +4,9 @@
 
 #include <unistd.h>
 
-#include "analysis.hpp"
-#include "instruction.hpp"
-#include "syscall.hpp"
+#include "analysis.hh"
+#include "instruction.hh"
+#include "syscall.hh"
 
 #define IARG_INSADDR(ins)       IARG_ADDRINT, INS_Address(ins)
 #define IARG_NEXTADDR(ins)      IARG_ADDRINT, INS_Address(ins) + INS_Size(ins)

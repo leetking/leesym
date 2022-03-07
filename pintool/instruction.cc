@@ -3,9 +3,9 @@
 #include <string>
 #include <algorithm>
 
-#include "instruction.hpp"
-#include "instrument.hpp"
-#include "trace.hpp"
+#include "instruction.hh"
+#include "instrument.hh"
+#include "trace.hh"
 #include "common.h" // import BUG_ON
 
 using namespace std;
