@@ -71,6 +71,7 @@ void tracelog_regimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, 
     // 0xabcd.{0x0,0x1,}.aaaa.ffff.
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_reg_offset(reg, regsize);
+    trace << "{}";
     trace << ".";
 
     dump_value(val, regsize);
@@ -107,6 +108,7 @@ void tracelog_regregimm(UINT64 insAddr, string const& insDis, REG reg1, UINT64 v
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_reg_offset(reg1, r1size);
     dump_reg_offset(reg2, r2size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val1, r1size);
@@ -127,6 +129,7 @@ void tracelog_regmemimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 va
 
     dump_reg_offset(reg, regsize);
     dump_mem_offset(addr, size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val1, regsize);
@@ -216,6 +219,7 @@ void tracelog_memimm(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 v
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_mem_offset(addr, size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val, size);
