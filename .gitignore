@@ -1,7 +1,10 @@
 *.out
 *.o
+*.s
 *.obj
 *.log
+*.png
+*.svg
 
 compile_commands.json
 
