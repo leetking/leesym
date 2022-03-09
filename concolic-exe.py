@@ -28,18 +28,26 @@ def int_fromhex(s: str) -> int:
     return int.from_bytes(bytes.fromhex(s), "little")
 
 
+def signed(uv, size):
+    return uv | (-(uv & (1<<(size-1))))
+
+
+def unsigned(iv, size):
+    return iv + (1<<size)
+
+
 def get_byte(num, idx):
     # int.to_bytes(1, 'little')
     return (num >> (8*idx)) & 0xff
 
 
-COND_UNSPPORT = 0  # Unspport now, e.g. js
-COND_EQ = 0x1   # ==
+COND_UNSPPORT = 0xff  # Unspport now, e.g. js
+COND_EQ = 0x1    # ==
 COND_NE  = 0x2   # !=
 COND_LT  = 0x3   # <
 COND_LE  = 0x4   # <=
-COND_GT = 0x5   # >
-COND_GE = 0x6 # >=
+COND_GT = 0x5    # >
+COND_GE = 0x6    # >=
 
 
 class Instruction:
@@ -52,7 +60,7 @@ class Instruction:
         if ins in ('jz',   'jnz',  'jl',  'jnl',
                    'jbe',  'jnbe', 'jle', 'jnle',
                    'ja',   'jna',  'js',  'jns',
-                   'jb', 'jnb'):
+                   'jb',   'jnb'):
             return True
         warn("Maybe forget condition jump: ", asm)
         return False
@@ -70,7 +78,7 @@ class Instruction:
             return JumpIns(addr, asm, size, result, offsets, values)
         if Instruction._is_condjmp(ins):
             return CondJumpIns(addr, asm)
-        if ins in ('add', 'sub', 'mul', 'imul', 'div', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea',
+        if ins in ('add', 'sub', 'mul', 'imul', 'div', 'idiv', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea',
                    'ror', 'rol'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
@@ -121,6 +129,10 @@ class ArithmeticIns:
         shift %= size
         return ArithmeticIns.ror(val, size - shift, size)
 
+    @staticmethod
+    def idiv(a, b, size):
+        return unsigned(signed(a, size) // signed(b, size), size)
+
     ops = {
         'add': operator.add,
         'sub': operator.sub,
@@ -162,6 +174,9 @@ class ArithmeticIns:
         elif ins == 'rol':
             assert 2 == len(values)
             result = ArithmeticIns.rol(values[0], values[1], 8*self.size)
+        elif ins == 'idiv':
+            assert 2 == len(values)
+            result = ArithmeticIns.idiv(values[0], values[1], 8*self.size)
         elif ins in ArithmeticIns.ops:
             assert 2 == len(values)
             result = ArithmeticIns.ops[ins](values[0], values[1])
@@ -196,11 +211,16 @@ class ArithmeticIns:
         elif ins == 'ror':
             assert 2 == len(symvals)
             assert 2 == len(values)
-            result = ArithmeticIns.ror(symvals[0], values[1], 8*self.size)
+            exp = ArithmeticIns.ror(symvals[0], values[1], 8*self.size)
         elif ins == 'rol':
             assert 2 == len(symvals)
             assert 2 == len(values)
-            result = ArithmeticIns.rol(symvals[0], values[1], 8*self.size)
+            exp = ArithmeticIns.rol(symvals[0], values[1], 8*self.size)
+        elif ins in ('div', 'idiv'):
+            assert 2 == len(symvals)
+            assert 2 == len(values)
+            # TODO 替换 symvals[1] 为具体值
+            exp = symvals[0] / symvals[1]
         elif ins in ArithmeticIns.ops:
             assert 2 == len(symvals)
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
@@ -266,6 +286,7 @@ class CompareIns:
         COND_GT: ('>',  operator.gt),
         COND_GE: ('>=', operator.ge),
         COND_UNSPPORT: ('??', lambda a, b: True),
+        None: ('??', lambda a, b: True),
     }
     def __init__(self, addr, asm, size, offsets, values):
         self.addr = addr
@@ -303,10 +324,11 @@ class CompareIns:
         return self._expression
 
     def symbolize(self, symvals):
-        assert self.condition
         assert 2 == len(symvals)
-        if self.condition == COND_UNSPPORT:
-            warn("Unknow condition (0x{:x} {})".format(self.addr, self.asm))
+        if self.condition == None:
+            warn("Unknow condition, use True instead (0x{:x} {})".format(self.addr, self.asm))
+        elif self.condition == COND_UNSPPORT:
+            warn("Unsupport condition, use True instead (0x{:x} {})".format(self.addr, self.asm))
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         exp = CompareIns.conds[self.condition][1](symvals[0], symvals[1])
@@ -343,6 +365,14 @@ def is_jump(ins):
     return isinstance(ins, JumpIns)
 
 
+def previous_compare(instructions, limit=5):
+    len_ = len(instructions)
+    for i in range(-1, max(-limit, -len_)-1, -1):
+        if is_compare(instructions[i]):
+            return len_ + i
+    return NONE_ORDER
+
+
 def parse_trace_file(fname):
     # 记录全部指令，以地址为记录
     instructions = []
@@ -351,13 +381,11 @@ def parse_trace_file(fname):
             ins = Instruction.from_trace(trace)
             # discard condtion jump
             if is_condjmp(ins):
-                if not instructions or not is_compare(instructions[-1]):
+                prevcmpidx = previous_compare(instructions)
+                if prevcmpidx == NONE_ORDER:
                     warn("Single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
-                elif COND_UNSPPORT == ins.condition:
-                    del instructions[-1]
                 else:
-                    assert COND_UNSPPORT != ins.condition
-                    instructions[-1].condition = ins.condition
+                    instructions[prevcmpidx].condition = ins.condition
             else:
                 instructions.append(ins)
     return instructions
@@ -459,7 +487,7 @@ def concolic_execute(instructions, input_):
     addr2idxes = groupby_addr(instructions)
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
-    plot_datagraph(instructions, datagraph)
+    #plot_datagraph(instructions, datagraph)
     #syminput = tuple(z3.BitVec("b{}".format(i) for i, _ in enumerate(input_)))
     path_contraintion = {}
     for i, ins in enumerate(instructions):
