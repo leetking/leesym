@@ -131,7 +131,9 @@ class ArithmeticIns:
 
     @staticmethod
     def idiv(a, b, size):
-        return unsigned(signed(a, size) // signed(b, size), size)
+        # 采用 Intel 下的符号除法规则 ceil(a/b)
+        # Python 的为 floor(a/b)
+        return unsigned(int(signed(a, size) / signed(b, size)), size)
 
     ops = {
         'add': operator.add,
@@ -601,3 +603,6 @@ concolic_execute(instructions, input_)
 
 #for addr, ins in instructions.items():
 #    print(addr, ins.asm, ins.loffsets, ins.roffsets, ins.loperands, ins.roperands)
+
+## 记录
+# 由于 Intel CPU 在做有符号运算时存在符号位扩展问题，所以有符号除法不好解决
