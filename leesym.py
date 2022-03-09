@@ -237,7 +237,7 @@ def is_arimetic(ins):
 
 
 def is_division(ins):
-    divs = ('div')
+    divs = ('div', 'idiv')
     name = ins.asm.split()[0]
     return name in divs
 
@@ -420,13 +420,12 @@ def build_datagraph(instructions, offset2idxes):
 
 
 def build_cmpgraph(instructions):
-    graph = OrderedDict()
+    graph = [NONE_ORDER for _ in instructions]
     prev = NONE_ORDER
     for i, ins in enumerate(instructions):
-        if not is_compare(ins):
-            continue
         graph[i] = prev
-        prev = i
+        if is_compare(ins):
+            prev = i
     return graph
 
 
@@ -489,8 +488,8 @@ def concolic_execute(instructions, input_):
     addr2idxes = groupby_addr(instructions)
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
-    #plot_datagraph(instructions, datagraph)
     #syminput = tuple(z3.BitVec("b{}".format(i) for i, _ in enumerate(input_)))
+    ret = []
     path_contraintion = {}
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
@@ -524,12 +523,15 @@ def concolic_execute(instructions, input_):
             exp = ins.symbolize(symvals)
             pc = []
             if prevpcidx != NONE_ORDER:
-                pc += path_contraintion[prevpcidx]
+                pc = path_contraintion[prevpcidx]
             if ins.condition != COND_EQ:    # 突破不等交给 Fuzzer，而不是 SymExe
                 solver = z3.Solver()
                 solver.add(z3.Not(exp), *pc)
                 rst = solver.check()
                 if rst == z3.sat:
+                    model = solver.model()
+                    if len(model):
+                        ret.append(str(model))
                     print(solver.model())
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
@@ -540,13 +542,32 @@ def concolic_execute(instructions, input_):
             path_contraintion[i] = pc + [exp]
         elif is_jump(ins):
             pass
-        elif is_division(ins):
-            pass
         elif is_arimetic(ins):
+            if is_division(ins):
+                prevpcidx = cmpgraph[i]
+                pc = []
+                if prevpcidx != NONE_ORDER:
+                    pc = path_contraintion[prevpcidx]
+                solver = z3.Solver()
+                solver.add(0 == symvals[1], *pc)
+                rst = solver.check()
+                if rst == z3.sat:
+                    model = solver.model()
+                    if len(model):
+                        ret.append(str(model))
+                    print(model)
+                elif rst == z3.unsat:
+                    info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
+                elif rst == z3.unknown:
+                    info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
+                else:
+                    raise ValueError("Unknow result solver returned")
             # symbolize this expression
             ins.symbolize(symvals)
         else:
             raise ValueError("Unspport instruction {}".format(ins.asm))
+
+    return ret
 
 
 def plot_datagraph(instructions, datagraph, outstrm=sys.stdout):
@@ -579,12 +600,14 @@ input_ = readfile(input_file)
 
 instructions = parse_trace_file(trace_file)
 
-concolic_execute(instructions, input_)
 
-#offset2idxes = groupby_offset(instructions)
-#addr2idxes = groupby_addr(instructions)
-#datagraph = build_datagraph(instructions, offset2idxes)
-#cmpgraph = build_cmpgraph(instructions)
+offset2idxes = groupby_offset(instructions)
+addr2idxes = groupby_addr(instructions)
+datagraph = build_datagraph(instructions, offset2idxes)
+cmpgraph = build_cmpgraph(instructions)
+
+result = concolic_execute(instructions, input_)
+
 #for i, p in cmpgraph.items():
 #    cur = instructions[i]
 #    prv = instructions[p]
