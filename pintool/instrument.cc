@@ -387,9 +387,9 @@ void taintRegister(REG reg, UINT64 const* offset, UINT32 size)
     // found r, update it
     UINT32 shift = get_reg_shift(reg);
     for (UINT32 i = shift; i < size+shift; ++i) {
-        if (offset[i] != INVALID_OFFSET) {
+        if (offset[i-shift] != INVALID_OFFSET) {
             set_bitmap(r->tainted, i);
-            r->offset[i] = offset[i];
+            r->offset[i] = offset[i-shift];
         } else {
             clr_bitmap(r->tainted, i);
             r->offset[i] = INVALID_OFFSET;
