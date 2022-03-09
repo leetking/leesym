@@ -145,6 +145,10 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            child_pid = -1,            /* PID of the fuzzed program        */
            out_dir_fd = -1;           /* FD of the lock file              */
 
+static s32 leesym_pid,                /* leesym server pid */
+           leesym_stdin,              /* leesym's stdin pipe (afl write) */
+           leesym_stdout;             /* leesym's stdout pipe (afl read) */
+
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
@@ -6820,6 +6824,17 @@ static void handle_stop_sig(int sig) {
   if (child_pid > 0) kill(child_pid, SIGKILL);
   if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
 
+  if (4 != write(leesym_stdout, "Bye\n", 4))
+      goto force_kill_leesym;
+
+  u8 buff[64];
+  ssize_t rdsize = read(leesym_stdout, buff, 64);
+  if (rdsize < 3 || 0 != strncmp("Bye", buff, rdsize))
+      goto force_kill_leesym;
+  return;
+
+force_kill_leesym:
+      kill(leesym_pid, SIGKILL);
 }
 
 
@@ -7754,6 +7769,51 @@ static void save_cmdline(u32 argc, char** argv) {
 
 #ifndef AFL_LIB
 
+
+void setup_leesym()
+{
+    // -s
+    char const *leesym = "./leesym.py";
+    s32 iopipe[2];
+    if (pipe(iopipe) < 0) FATAL("pipe fails");
+    pid_t pid = fork();
+    if (-1 == pid) {
+        FATAL("setup leesym fails");
+    }
+    // leesym
+    else if (0 == pid) {
+        if (dup2(iopipe[0], 0) < 0) FATAL("dup2 stdin fails");
+        if (dup2(iopipe[1], 1) < 0) FATAL("dup2 stdout fails");
+        close(iopipe[0]);
+        close(iopipe[1]);
+        execl(leesym, "-s", NULL);
+        // never return
+    }
+
+    leesym_pid = pid;
+    leesym_stdout = iopipe[0];
+    leesym_stdin = iopipe[1];
+
+    // FIXME 这里不是 orig_cmdline，需要目标程序信息
+    // pipe 好像使用不正确
+    u8 *cmdline = alloc_printf("cmdline: %s\n", orig_cmdline);
+    if (write(leesym_stdin, cmdline, strlen(cmdline)) != strlen(cmdline))
+        FATAL("handsake with leesym fails in cmdline stage");
+    ck_free(cmdline);
+
+    u8 *outdir = alloc_printf("outdir: %s\n", out_dir);
+    if (write(leesym_stdin, outdir, strlen(outdir)) != strlen(outdir))
+        FATAL("handsake with leesym fails in outdirn stage");
+    ck_free(outdir);
+
+    u8 buff[1024];
+    ssize_t rdsize = read(leesym_stdout, buff, 1024);
+    if (rdsize < 2 || 0 != strncmp("Ok", buff, 2))
+        FATAL("handsake with leesym fails in final stage");
+
+    SAYF("handsake with leesym is successed\n");
+}
+
 /* Main entry point */
 
 int main(int argc, char** argv) {
@@ -7989,7 +8049,10 @@ int main(int argc, char** argv) {
   if (getenv("AFL_LD_PRELOAD"))
     FATAL("Use AFL_PRELOAD instead of AFL_LD_PRELOAD");
 
+
   save_cmdline(argc, argv);
+
+  setup_leesym();
 
   fix_up_banner(argv[optind]);
 
