@@ -1,0 +1,38 @@
+AFL 和 leesym 的 evel 模式交互
+
+0. AFL fork()-exec() leesym 重定向 leesym 的输入和输出管道用于通讯
+
+1. AFL -> leesym:
+   ```txt
+   cmdline: hello-world -c @@
+   outdir: output.dir
+   ```
+
+2. AFL <- leesym:
+   ```txt
+   Ok
+   ```
+
+3. AFL -> leesym:
+   ```txt
+   seed: path-to-seed-file
+   ```
+
+4. AFL <- leesym:
+   ```txt
+   generated: 42
+   input0: path-to-generated-input
+   input1: path-to-generated-input
+   ...
+   input41: path-to-generated-input
+   ```
+
+4. AFL <- leesym: [发生错误]
+   1. 超时
+   2. broken pipe
+   3. error: reason
+
+5. AFL -> leesym:
+   ```txt
+   Bye
+   ```

@@ -1,16 +1,32 @@
 #!/usr/bin/env python3
 
-import sys
+import os
 import re
+import sys
+import time
 import itertools
 import operator
-import z3
+import argparse
 from collections import OrderedDict
 from bisect import bisect_left
+
+import z3
+
+from leetaint import leetaint
 
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
+
+parser = argparse.ArgumentParser(prog='leesym', description='concolic executtion to get new seeds')
+parser.add_argument('-s', '--server',
+        dest='server_mode',
+        action='store_true',
+        default=False,
+        help="server mode with stdin and stdout")
+parser.add_argument('-i', dest='seed_file', help='A seed file')
+parser.add_argument('-o', dest='output_dir', help='An output directory')
+parser.add_argument('cmd', nargs='*', help='cmd')
 
 
 def warn(*args, **kargs):
@@ -378,7 +394,7 @@ def previous_compare(instructions, limit=5):
 def parse_trace_file(fname):
     # 记录全部指令，以地址为记录
     instructions = []
-    with open(trace_file, 'r') as tf:
+    with open(fname, 'r') as tf:
         for trace in tf:
             ins = Instruction.from_trace(trace)
             # discard condtion jump
@@ -453,8 +469,8 @@ def groupby_addr(instructions):
     return addr2idxes
 
 
-def is_original(value, offset, input_):
-    return all(off == NONE_OFFSET or get_byte(value, i) == input_[off] for i, off in enumerate(offset))
+def is_original(value, offset, seed):
+    return all(off == NONE_OFFSET or get_byte(value, i) == seed[off] for i, off in enumerate(offset))
 
 
 def symbolize_value(value, offset):
@@ -483,12 +499,15 @@ def subpart(bitvec, start, end):
     return z3.Extract(hi, lo, bitvec)
 
 
-def concolic_execute(instructions, input_):
+def solve(*pcs):
+    pass
+
+
+def concolic_execute(instructions, seed):
     offset2idxes = groupby_offset(instructions)
     addr2idxes = groupby_addr(instructions)
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
-    #syminput = tuple(z3.BitVec("b{}".format(i) for i, _ in enumerate(input_)))
     ret = []
     path_contraintion = {}
     for i, ins in enumerate(instructions):
@@ -499,7 +518,7 @@ def concolic_execute(instructions, input_):
             previdx = datagraph[i][k]
             symval = None
             if not is_offset_empty(offset):
-                if previdx == NONE_ORDER and is_original(value, offset, input_):
+                if previdx == NONE_ORDER and is_original(value, offset, seed):
                     symval = symbolize_value(value, offset)
                 elif previdx != NONE_ORDER:
                     prevexp = instructions[previdx].expression
@@ -532,7 +551,7 @@ def concolic_execute(instructions, input_):
                     model = solver.model()
                     if len(model):
                         ret.append(str(model))
-                    print(solver.model())
+                    info(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
@@ -555,7 +574,7 @@ def concolic_execute(instructions, input_):
                     model = solver.model()
                     if len(model):
                         ret.append(str(model))
-                    print(model)
+                    info(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
@@ -589,43 +608,108 @@ def plot_datagraph(instructions, datagraph, outstrm=sys.stdout):
     if isinstance(outstrm, str):
         strm.close()
 
+
 def readfile(file):
     with open(file, 'rb') as fp:
         return fp.read()    # read all content
 
-# main
-trace_file = sys.argv[1]
-input_file = sys.argv[2]
-input_ = readfile(input_file)
 
-instructions = parse_trace_file(trace_file)
+def writefile(bytes_, file):
+    with open(file, 'wb') as fp:
+        fp.write(bytes_)
 
 
-offset2idxes = groupby_offset(instructions)
-addr2idxes = groupby_addr(instructions)
-datagraph = build_datagraph(instructions, offset2idxes)
-cmpgraph = build_cmpgraph(instructions)
+def save_all_testcases(result, seed, outdir):
+    generated_testcases = []
+    pat = r'b(\d+)\s*=\s*(\d+)'
+    os.makedirs(outdir, exist_ok=True)
+    for rst in result:
+        input_ = bytearray(seed)
+        repls = [(int(s), int(v)) for s, v in re.findall(pat, rst)]
+        repls.sort(key=operator.itemgetter(0))
+        name = '#'.join("{:02x}@b{}".format(v, s) for s, v in repls)
+        for s, v in repls:
+            input_[s] = v & 0xff
+        fnamepath = os.path.join(outdir, name)
+        if os.path.exists(fnamepath):
+            warn("{} exists, skip".format(name))
+        else:
+            writefile(input_, fnamepath)
+            generated_testcases.append(fnamepath)
+    return generated_testcases
 
-result = concolic_execute(instructions, input_)
 
-#for i, p in cmpgraph.items():
-#    cur = instructions[i]
-#    prv = instructions[p]
-#    print("{}: {} -> {}: {}".format(i, Instruction.beautify(cur), p, Instruction.beautify(prv)))
-#plot_datagraph(instructions, datagraph)
-#for off, idxes in offset2ins.items():
-#    for i in idxes:
-#        ins = instructions[i]
-#        print(off, ins.addr, ins.asm, ins.offsets)
+def server_mode():
+    # 握手
+    type_, cmdline = input().split(':')
+    if 'cmdline' != type_:
+        return 101
+    type_, outdir = input().split(':')
+    if 'outdir' != type_:
+        return 101
+    print('Ok')
 
-#groupby_addr(trace_file)
+    cmdline = cmdline.strip()
+    outdir = outdir.strip()
+    loop_cnt = 0
+    while True:
+        try:
+            request = input()
+        except (KeyboardInterrupt, EOFError):
+            print('Bye')
+            break
+        if request.startswith('Bye'):
+            print('Bye')
+            break
+        type_, seed_file = request.split(':')
+        seed_file = seed_file.strip()
+        if 'seed' != type_:
+            print('error: invalid type')
+            continue
+        req_outdir = os.path.join(outdir, '{:06}'.format(loop_cnt))
 
-#instructions = parse_trace_file(trace_file)
+        if not leetaint(seed_file, req_outdir, cmdline):
+            print("error: leetaint fails")
+            continue
+        trace_file = os.path.join(req_outdir, 'trace.txt')
+        seed = readfile(seed_file)
+        testcasepath = os.path.join(req_outdir, 'testcases')
+        instructions = parse_trace_file(trace_file)
+        result = concolic_execute(instructions, seed)
+        saved_files = save_all_testcases(result, seed, testcasepath)
+        print("generated: ", len(saved_files))
+        for no, fpath in enumerate(saved_files):
+            print("input{}: {}".format(no, fpath))
 
-#print("ins: ", len(instructions))
+        loop_cnt += 1
 
-#for addr, ins in instructions.items():
-#    print(addr, ins.asm, ins.loffsets, ins.roffsets, ins.loperands, ins.roperands)
+    return 0
+
+
+def main():
+    args = parser.parse_args()
+    if args.server_mode:
+        server_mode()
+        return 0
+
+    if not (args.seed_file and args.output_dir and args.cmd):
+        parser.print_usage()
+        return 101
+    if not leetaint(args.seed_file, args.output_dir, args.cmd):
+        print("leetaint fails")
+        return 102
+    trace_file = os.path.join(args.output_dir, 'trace.txt')
+    seed = readfile(args.seed_file)
+    testcasepath = os.path.join(args.output_dir, 'testcases')
+    instructions = parse_trace_file(trace_file)
+    result = concolic_execute(instructions, seed)
+    saved_files = save_all_testcases(result, seed, testcasepath)
+
+
+if __name__ == '__main__':
+    main()
+
 
 ## 记录
 # 由于 Intel CPU 在做有符号运算时存在符号位扩展问题，所以有符号除法不好解决
+# 尝试在建立 datagraph 和初始符号化时分析符号扩展
