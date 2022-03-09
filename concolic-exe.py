@@ -51,7 +51,7 @@ class Instruction:
         # js: jump if SF set
         if ins in ('jz',   'jnz',  'jl',  'jnl',
                    'jbe',  'jnbe', 'jle', 'jnle',
-                   'ja',   'jna',  'js',
+                   'ja',   'jna',  'js',  'jns',
                    'jb', 'jnb'):
             return True
         warn("Maybe forget condition jump: ", asm)
@@ -70,7 +70,8 @@ class Instruction:
             return JumpIns(addr, asm, size, result, offsets, values)
         if Instruction._is_condjmp(ins):
             return CondJumpIns(addr, asm)
-        if ins in ('add', 'sub', 'mul', 'imul', 'div', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea'):
+        if ins in ('add', 'sub', 'mul', 'imul', 'div', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea',
+                   'ror', 'rol'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
@@ -110,6 +111,16 @@ class Instruction:
 
 
 class ArithmeticIns:
+    @staticmethod
+    def ror(val, shift, size):
+        shift %= size
+        return (val>>shift) | (val<<(size-shift))
+
+    @staticmethod
+    def rol(val, shift, size):
+        shift %= size
+        return ArithmeticIns.ror(val, size - shift, size)
+
     ops = {
         'add': operator.add,
         'sub': operator.sub,
@@ -142,15 +153,20 @@ class ArithmeticIns:
         if ins == 'not':
             assert 1 == len(values)
             result = ~values[0]
-        elif ins in ('add', 'sub', 'mul', 'imul', 'div',
-                     'and', 'or', 'xor', 'shr', 'shl'):
-            assert 2 == len(values)
-            result = ArithmeticIns.ops[ins](values[0], values[1])
         elif ins == 'lea':
             assert 4 == len(values)
             result = values[0] + values[1] * values[2] + values[3]
+        elif ins == 'ror':
+            assert 2 == len(values)
+            result = ArithmeticIns.ror(values[0], values[1], 8*self.size)
+        elif ins == 'rol':
+            assert 2 == len(values)
+            result = ArithmeticIns.rol(values[0], values[1], 8*self.size)
+        elif ins in ArithmeticIns.ops:
+            assert 2 == len(values)
+            result = ArithmeticIns.ops[ins](values[0], values[1])
         else:
-            raise ValueError("Unspoort instruction {}".format(self.asm))
+            raise ValueError("Unspport instruction {}".format(self.asm))
         # fixed size
         self._result = result & ((1<<(8*self.size))-1)
         return self._result
@@ -169,9 +185,6 @@ class ArithmeticIns:
         if ins == 'not':
             assert 1 == len(symvals)
             exp = ~symvals[0]
-        elif ins in ('add', 'sub', 'mul', 'imul', 'div', 'and', 'or', 'xor'):
-            assert 2 == len(symvals)
-            exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         elif ins in ('shr', 'shl'):
             assert 2 == len(symvals)
             assert 2 == len(values)
@@ -180,8 +193,19 @@ class ArithmeticIns:
             assert 2 == len(symvals)
             assert 4 == len(values)
             exp = symvals[0] + symvals[1] * values[2] + values[3]
+        elif ins == 'ror':
+            assert 2 == len(symvals)
+            assert 2 == len(values)
+            result = ArithmeticIns.ror(symvals[0], values[1], 8*self.size)
+        elif ins == 'rol':
+            assert 2 == len(symvals)
+            assert 2 == len(values)
+            result = ArithmeticIns.rol(symvals[0], values[1], 8*self.size)
+        elif ins in ArithmeticIns.ops:
+            assert 2 == len(symvals)
+            exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
-            raise ValueError("Unspoort instruction {}".format(self.asm))
+            raise ValueError("Unspport instruction {}".format(self.asm))
         self._expression = exp
         return exp
 
@@ -216,8 +240,8 @@ class CondJumpIns:
             return COND_GT
         if ins in ('jnl', 'jnb'):
             return COND_GE
-        if ins in ('js'):
-            warn("Ignore condition jump: ", ins)
+        if ins in ('js', 'jns'):
+            warn("Ingore condition jump {}.".format(ins))
             return COND_UNSPPORT
         else:
             raise ValueError("Unspport instruction {}".format(ins))
