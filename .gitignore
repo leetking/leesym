@@ -24,3 +24,5 @@ pintool/obj-ia32/
 pintool/obj-intel64/
 
 traceAnalyzer/traceAnalyzer
+
+__pycache__/
