@@ -127,6 +127,7 @@ VOID taintMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
     if (!isRegisterTainted(reg)) {
         for (UINT32 i = 0; i < size; ++i)
             removeTaintByte(addr + i);
+        return;
     }
 
     UINT64 const* offset = getRegisterOffset(reg);

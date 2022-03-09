@@ -71,6 +71,7 @@ void tracelog_regimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, 
     // 0xabcd.{0x0,0x1,}.aaaa.ffff.
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_reg_offset(reg, regsize);
+    trace << "{}";
     trace << ".";
 
     dump_value(val, regsize);
@@ -107,6 +108,7 @@ void tracelog_regregimm(UINT64 insAddr, string const& insDis, REG reg1, UINT64 v
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_reg_offset(reg1, r1size);
     dump_reg_offset(reg2, r2size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val1, r1size);
@@ -127,6 +129,7 @@ void tracelog_regmemimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 va
 
     dump_reg_offset(reg, regsize);
     dump_mem_offset(addr, size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val1, regsize);
@@ -216,6 +219,7 @@ void tracelog_memimm(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 v
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_mem_offset(addr, size);
+    trace << "{}";
     trace << ".";
 
     dump_value(val, size);
@@ -232,7 +236,7 @@ void tracelog_leamem(UINT64 insaddr, string const& insdis,
         UINT64 disp,
         UINT32 size)
 {
-    // addr.lea ecx, [eax+4*ebx+0x22].{base offsets}.{idx offsets}.bval.ival.scale.disp.
+    // addr.lea ecx, [eax+4*ebx+0x22].{base offsets}{idx offsets}.bval.ival.scale.disp.
     UINT32 bsize = size;
     UINT32 isize = size;
     trace << hex << "0x" << insaddr << "." << insdis << ".";
@@ -242,7 +246,6 @@ void tracelog_leamem(UINT64 insaddr, string const& insdis,
     } else {
         trace << "{}";
     }
-    trace << ".";
     if (REG_valid(idx)) {
         isize = min(size, REG_Size(idx));
         dump_reg_offset(idx, isize);
@@ -280,7 +283,7 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
         UINT64 disp,
         UINT32 size)
 {
-    // addr.jmp [eax+4*ebx+0x22].result.{base offsets}.{idx offsets}.bval.ival.scale.disp.
+    // addr.jmp [eax+4*ebx+0x22].result.{base offsets}{idx offsets}.bval.ival.scale.disp.
     UINT32 bsize = size;
     UINT32 isize = size;
     trace << hex << "0x" << insaddr << "." << insdis << ".";
@@ -292,7 +295,6 @@ void tracelog_jmpmem(UINT64 insaddr, string const& insdis, ADDRINT result,
     } else {
         trace << "{}";
     }
-    trace << ".";
     if (REG_valid(idx)) {
         isize = min(size, REG_Size(idx));
         dump_reg_offset(idx, isize);
