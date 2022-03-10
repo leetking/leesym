@@ -352,7 +352,9 @@ class CompareIns:
     def strcond(self):
         if self.condition == None:
             warn("Compare doesn't set condition. (0x{:x} {})".format(self.addr, self.asm))
-        CompareIns.conds.get(self.condition, ("??", None))[0]
+        if self.condition not in CompareIns.conds:
+            raise ValueError("Unexpected condition in CompareIns")
+        return CompareIns.conds.get(self.condition)[0]
 
     def guess_condition(self):
         assert self.condition == None or self.condition == COND_UNSPPORT
