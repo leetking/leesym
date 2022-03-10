@@ -100,7 +100,7 @@ class Instruction:
         if Instruction._is_condjmp(ins):
             return CondJumpIns(addr, asm)
         if ins in ('add', 'sub', 'mul', 'imul', 'div', 'idiv', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea',
-                   'ror', 'rol'):
+                   'ror', 'rol', 'sar', 'sal'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
@@ -146,9 +146,19 @@ class ArithmeticIns:
         return (val>>shift) | (val<<(size-shift))
 
     @staticmethod
+    def symror(symval, shift, size):
+        shift %= size
+        return z3.LShR(symval, shift) | (symval<<(size-shift))
+
+    @staticmethod
     def rol(val, shift, size):
         shift %= size
         return ArithmeticIns.ror(val, size - shift, size)
+
+    @staticmethod
+    def symrol(symval, shift, size):
+        shift %= size
+        return ArithmeticIns.symror(val, size - shift, size)
 
     @staticmethod
     def idiv(a, b, size):
@@ -156,19 +166,29 @@ class ArithmeticIns:
         # Python 的为 floor(a/b)
         return unsigned(int(signed(a, size) / signed(b, size)), size)
 
+    @staticmethod
+    def sar(uv, shift, size):
+        #assert size and size%8 == 0
+        # Python 中 >> 就是算术右移位
+        return unsigned(signed(uv, size) >> shift, size)
+
     ops = {
+        #'not': operator.not_,      # 按bits操作
+        #'lea': None,
+        #'ror': None,               # 循环右移
+        #'rol': None,
+        #'shr': operator.rshift,    # 逻辑右移
+        #'idiv': None,
+        #'div': None,
         'add': operator.add,
         'sub': operator.sub,
         'mul': operator.mul,
         'imul': operator.mul,
-        'div': operator.floordiv,
-        #'not': operator.not_,      # 按bits操作
         'and': operator.and_,
         'or': operator.or_,
         'xor': operator.xor,
-        'shr': operator.rshift,     # 逻辑移位
         'shl': operator.lshift,
-        #'lea': _,
+        'sal': operator.lshift,     # 算术左移
     }
 
     def __init__(self, addr, asm, size, offsets, values):
@@ -186,22 +206,23 @@ class ArithmeticIns:
         ins = self.asm.split()[0]
         values = self.values
         if ins == 'not':
-            assert 1 == len(values)
             result = ~values[0]
         elif ins == 'lea':
             assert 4 == len(values)
             result = values[0] + values[1] * values[2] + values[3]
         elif ins == 'ror':
-            assert 2 == len(values)
             result = ArithmeticIns.ror(values[0], values[1], 8*self.size)
         elif ins == 'rol':
-            assert 2 == len(values)
             result = ArithmeticIns.rol(values[0], values[1], 8*self.size)
+        elif ins == 'sar':  # 算术右移，符号扩展
+            result = ArithmeticIns.sar(values[0], values[1], 8*self.size)
+        elif ins == 'shr':
+            result = values[0] >> values[1]
         elif ins == 'idiv':
-            assert 2 == len(values)
             result = ArithmeticIns.idiv(values[0], values[1], 8*self.size)
+        elif ins == 'div':
+            result = values[0] // values[1]
         elif ins in ArithmeticIns.ops:
-            assert 2 == len(values)
             result = ArithmeticIns.ops[ins](values[0], values[1])
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
@@ -214,7 +235,7 @@ class ArithmeticIns:
         assert self._expression != None
         return self._expression
 
-    # 默认的 <, >, / 都是有符号操作，提供了 Uxx 的操作默认都是有符号
+    # 默认的 <, >, /, <<, >> 都是有符号操作，提供了 Uxx/Lxx 的操作默认都是有符号
     # 其余是无符号
     def symbolize(self, symvals):
         for sym in symvals:
@@ -223,31 +244,24 @@ class ArithmeticIns:
         ins = self.asm.split()[0]
         values = self.values
         if ins == 'not':
-            assert 1 == len(symvals)
             exp = ~symvals[0]
-        elif ins in ('shr', 'shl'):
-            assert 2 == len(symvals)
-            assert 2 == len(values)
-            exp = ArithmeticIns.ops[ins](symvals[0], values[1])
         elif ins == 'lea':
-            assert 2 == len(symvals)
             assert 4 == len(values)
             exp = symvals[0] + symvals[1] * values[2] + values[3]
         elif ins == 'ror':
-            assert 2 == len(symvals)
-            assert 2 == len(values)
-            exp = ArithmeticIns.ror(symvals[0], values[1], 8*self.size)
+            exp = ArithmeticIns.symror(symvals[0], values[1], 8*self.size)
         elif ins == 'rol':
-            assert 2 == len(symvals)
-            assert 2 == len(values)
-            exp = ArithmeticIns.rol(symvals[0], values[1], 8*self.size)
-        elif ins in ('div', 'idiv'):
-            assert 2 == len(symvals)
-            assert 2 == len(values)
-            # TODO 替换 symvals[1] 为具体值
+            exp = ArithmeticIns.symrol(symvals[0], values[1], 8*self.size)
+        elif ins == 'sar':      # 逻辑右移位，z3 默认为符号右移和 Python 一致
+            exp = symvals[0] >> values[1]
+        elif ins == 'shr':
+            exp = z3.LShR(symvals[0], values[1])
+        elif ins == 'idiv':
+            # TODO 替换 symvals[1] 为具体值，z3 默认为有符号除法
             exp = symvals[0] / symvals[1]
+        elif ins == 'div':
+            exp = z3.UDiv(symvals[0], symvals[1])
         elif ins in ArithmeticIns.ops:
-            assert 2 == len(symvals)
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
@@ -593,7 +607,7 @@ def concolic_execute(instructions, seed):
                 elif previdx != NONE_ORDER:
                     prevexp = instructions[previdx].expression
                     if prevexp.size() < insbits:
-                        symval = z3.Concat(z3.BitVecVal(0, insbits - prevexp.size()), prevexp)
+                        symval = z3.SignExt(insbits - prevexp.size(), prevexp)
                     elif prevexp.size() > insbits:
                         symval = subpart(prevexp, 0, insbits)
                     else:
