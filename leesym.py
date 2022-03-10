@@ -490,19 +490,25 @@ def find_same_operand(ins, offset, value):
     return NONE_ORDER
 
 
-def previous_instruction(instructions, idx, offset, value, sameoffidxes):
+def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidxes):
+    limit = 200                # 最多向上搜索 limit 条
     previdx = NONE_ORDER        # -1
-    vsize = len(offset)
     for idxes in sameoffidxes:
         i = bisect_left(idxes, idx)
-        while i > 0 and idxes[i-1] > previdx:
+        end = max(0, i - limit)
+        while i > end and idxes[i-1] > previdx:
             i -= 1
             ins = instructions[idxes[i]]
             # check operands
+            opidx = find_same_operand(ins, offset, value)
+            if opidx != NONE_ORDER:
+                new_previdx = datagraph[idxes[i]][opidx]
+                if new_previdx > previdx:
+                    previdx = new_previdx
+                    break
             if not is_arimetic(ins):
                 continue
             result = ins.execute()
-            #if signed(value, vsize) == signed(result, ins.size):
             if value == result:
                 previdx = idxes[i]
                 break
@@ -514,7 +520,7 @@ def build_datagraph(instructions, offset2idxes):
     for i, ins in enumerate(instructions):
         for offset, value in zip(ins.offsets, ins.values):
             sameoffidxes = (offset2idxes[off] for off in offset if off != NONE_OFFSET)
-            previdx = previous_instruction(instructions, i, offset, value, sameoffidxes)
+            previdx = previous_instruction(datagraph, instructions, i, offset, value, sameoffidxes)
             datagraph[i].append(previdx)
     return datagraph
 
@@ -716,6 +722,7 @@ def writefile(bytes_, file):
 
 
 def save_all_testcases(result, seed, outdir):
+    name_len = 500
     generated_testcases = []
     pat = r'b(\d+)\s*=\s*(\d+)'
     os.makedirs(outdir, exist_ok=True)
@@ -724,6 +731,7 @@ def save_all_testcases(result, seed, outdir):
         repls = [(int(s), int(v)) for s, v in re.findall(pat, rst)]
         repls.sort(key=operator.itemgetter(0))
         name = '#'.join("{:02x}@b{}".format(v, s) for s, v in repls)
+        name = name[:name_len]  # 防止操作操作系统最大文件长度
         for s, v in repls:
             assert (v & (~0xff)) == 0x0
             input_[s] = v
