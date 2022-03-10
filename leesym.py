@@ -25,6 +25,7 @@ parser.add_argument('-s', '--server',
         default=False,
         help="server mode with stdin and stdout")
 parser.add_argument('-i', dest='seed_file', help='A seed file')
+parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
 parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')
 parser.add_argument('cmd', nargs='*', help='cmd')
@@ -482,16 +483,26 @@ def parse_trace_file(fname):
     return instructions
 
 
-def previous_instruction(instructions, idx, value, sameoffidxes):
+def find_same_operand(ins, offset, value):
+    for i, (offset2, value2) in enumerate(zip(ins.offsets, ins.values)):
+        if value2 == value and offset2 == offset:
+            return i
+    return NONE_ORDER
+
+
+def previous_instruction(instructions, idx, offset, value, sameoffidxes):
     previdx = NONE_ORDER        # -1
+    vsize = len(offset)
     for idxes in sameoffidxes:
         i = bisect_left(idxes, idx)
         while i > 0 and idxes[i-1] > previdx:
             i -= 1
             ins = instructions[idxes[i]]
+            # check operands
             if not is_arimetic(ins):
                 continue
             result = ins.execute()
+            #if signed(value, vsize) == signed(result, ins.size):
             if value == result:
                 previdx = idxes[i]
                 break
@@ -501,9 +512,9 @@ def previous_instruction(instructions, idx, value, sameoffidxes):
 def build_datagraph(instructions, offset2idxes):
     datagraph = [[] for _ in instructions]
     for i, ins in enumerate(instructions):
-        for offsets, value in zip(ins.offsets, ins.values):
-            sameoffidxes = (offset2idxes[off] for off in offsets if off != NONE_OFFSET)
-            previdx = previous_instruction(instructions, i, value, sameoffidxes)
+        for offset, value in zip(ins.offsets, ins.values):
+            sameoffidxes = (offset2idxes[off] for off in offset if off != NONE_OFFSET)
+            previdx = previous_instruction(instructions, i, offset, value, sameoffidxes)
             datagraph[i].append(previdx)
     return datagraph
 
@@ -783,6 +794,14 @@ def main():
     # server mode
     if args.server_mode:
         server_mode()
+        return 0
+
+    # plot data graph
+    if args.dot_file and args.cmd:
+        instructions = parse_trace_file(args.cmd[0])
+        offset2idxes = groupby_offset(instructions)
+        datagraph = build_datagraph(instructions, offset2idxes)
+        plot_datagraph(instructions, datagraph, args.dot_file)
         return 0
 
     if not args.seed_file:
