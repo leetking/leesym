@@ -739,6 +739,22 @@ static u8* DTD(u64 cur_ms, u64 event_ms) {
 }
 
 
+static void mark_as_leesym_done(struct queue_entry* q)
+{
+  u8* fn = strrchr(q->fname, '/');
+  s32 fd;
+  fn = alloc_printf("%s/leesym/.state/leesym_done/%s", out_dir, fn + 1);
+
+  fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fd < 0) PFATAL("Unable to create '%s'", fn);
+  close(fd);
+
+  ck_free(fn);
+
+  q->was_concolized = 1;
+}
+
+
 /* Mark deterministic checks as done for a particular queue entry. We use the
    .state file to avoid repeating deterministic fuzzing when resuming aborted
    scans. */
@@ -821,7 +837,7 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 /* Append new test case to the queue. */
 
-static void leesym_add_to_queue(u8* fname, u32 len, u8 passed_det, u8 was_concolized) {
+static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   struct queue_entry* q = ck_alloc(sizeof(struct queue_entry));
 
@@ -829,7 +845,6 @@ static void leesym_add_to_queue(u8* fname, u32 len, u8 passed_det, u8 was_concol
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
-  q->was_concolized = was_concolized;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -854,10 +869,6 @@ static void leesym_add_to_queue(u8* fname, u32 len, u8 passed_det, u8 was_concol
 
   last_path_time = get_cur_time();
 
-}
-
-static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
-    leesym_add_to_queue(fname, len, passed_det, 0);
 }
 
 
@@ -5042,6 +5053,35 @@ static void free_string_vector(char **strings, int num)
     ck_free(strings);
 }
 
+
+static u8 *readfile(char const *fname, off_t *pfsize)
+{
+    struct stat st;
+    if (stat(fname, &st) < 0) {
+        WARNF("Can't get file size.");
+        return NULL;
+    }
+    off_t fsize = st.st_size;
+    *pfsize = fsize;
+    int fd = open(fname, O_RDONLY);
+    if (fd < 0) {
+        WARNF("Can't open file.");
+        return NULL;
+    }
+
+    u8 *input = ck_alloc(fsize);
+    if (read(fd, input, fsize) != fsize) {
+        WARNF("fails to read all content.");
+        ck_free(input);
+        close(fd);
+        return NULL;
+    }
+    close(fd);
+
+    return input;
+}
+
+
 static char *leesym_read_new_input(int num)
 {
     char buff[1024];
@@ -5067,6 +5107,7 @@ static char *leesym_read_new_input(int num)
     *p = '\0';
     return seed_file;
 }
+
 
 static char **leesym_get_all_inputs(struct queue_entry *queue_cur, int *num_inputs)
 {
@@ -6226,7 +6267,7 @@ skip_extras:
    * LEESYM STAGE *
    ***************/
   stage_name = "leesym generating inputs";
-  stage_short = "leesym_gi";
+  stage_short = "sym_gi";
   stage_max = 0;
   if (queue_cur->was_concolized)
       goto skip_leesym;
@@ -6239,10 +6280,19 @@ skip_extras:
       SAYF("no inputs found from leesym.\n");
 
   stage_name = "leesym fuzzing every input";
-  stage_short = "leesym_fz";
+  stage_short = "sym_fz";
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-      // TODO 继续完成交互
       SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
+      off_t fsize = 0;
+      u8 *input = readfile(inputs[stage_cur], &fsize);
+      struct queue_entry *old_queue_top = queue_top;
+      if (input && common_fuzz_stuff(argv, input, fsize)) {
+          ck_free(input);
+          goto abandon_entry;
+      }
+      // 对于 leesym 发现的种子，不再进行符号执行
+      if (queue_top != old_queue_top) mark_as_leesym_done(queue_top);
+      if (input) ck_free(input);
   }
   queue_cur->was_concolized = 1;
   if (inputs) free_string_vector(inputs, stage_max);
@@ -7948,6 +7998,7 @@ static char *save_target_cmdline(int argc, char **argv)
 
 void setup_leesym()
 {
+    u8 *tmp;
     char const *leesym_root = getenv("LEESYM_ROOT");
     if (!leesym_root) {
         SAYF("No LEESYM_ROOT given, use ./ instead.\n");
@@ -7994,6 +8045,22 @@ void setup_leesym()
         FATAL("handsake with leesym fails in final stage");
 
     SAYF("handsake with leesym is successed\n");
+
+    // setup dirs
+    // <outdir>/leesym/
+    tmp = alloc_printf("%s/leesym", out_dir);
+    if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+    ck_free(tmp);
+
+    // <outdir>/leesym/.state
+    tmp = alloc_printf("%s/leesym/.state", out_dir);
+    if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+    ck_free(tmp);
+
+    // <outdir>/leesym/.state/leesym_done
+    tmp = alloc_printf("%s/leesym/.state/leesym_done", out_dir);
+    if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+    ck_free(tmp);
 }
 
 /* Main entry point */
@@ -8235,8 +8302,6 @@ int main(int argc, char** argv) {
   save_cmdline(argc, argv);
   save_target_cmdline(argc - optind, argv + optind);
 
-  setup_leesym();
-
   fix_up_banner(argv[optind]);
 
   check_if_tty();
@@ -8257,6 +8322,8 @@ int main(int argc, char** argv) {
   setup_dirs_fds();
   read_testcases();
   load_auto();
+
+  setup_leesym();
 
   pivot_inputs();
 
