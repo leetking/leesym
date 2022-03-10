@@ -25,6 +25,7 @@ parser.add_argument('-s', '--server',
         default=False,
         help="server mode with stdin and stdout")
 parser.add_argument('-i', dest='seed_file', help='A seed file')
+parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')
 parser.add_argument('cmd', nargs='*', help='cmd')
 
@@ -50,6 +51,11 @@ def signed(uv, size):
 
 def unsigned(iv, size):
     return iv + (1<<size)
+
+
+def guess_singed(uv, size):
+    # 0xffff as unsigned
+    return (uv & (1<<(size-1))) and (uv != ((1<<size)-1))
 
 
 def get_byte(num, idx):
@@ -208,6 +214,8 @@ class ArithmeticIns:
         assert self._expression != None
         return self._expression
 
+    # 默认的 <, >, / 都是有符号操作，提供了 Uxx 的操作默认都是有符号
+    # 其余是无符号
     def symbolize(self, symvals):
         for sym in symvals:
             assert self.size*8 == sym.size()
@@ -283,8 +291,8 @@ class CondJumpIns:
             return True
         if ins in CondJumpIns.unsigned_ins:
             return False
-        if ins in ('js', 'jns'):
-            warn("Ingore condition jump {}.".format(ins))
+        if ins in ('js', 'jns', 'jp', 'jnp'):
+            warn("Ignore condition jump {}.".format(ins))
             return False
         raise ValueError("Unspport instruction {}".format(ins))
 
@@ -293,7 +301,7 @@ class CondJumpIns:
         ins = self.asm.split()[0]
         if ins in ('jz', 'je'):
             return COND_EQ
-        if ins == ('jnz', 'jne'):
+        if ins in ('jnz', 'jne'):
             return COND_NE
         if ins in ('jl', 'jnge', 'jb', 'jnae'):
             return COND_LT
@@ -303,8 +311,8 @@ class CondJumpIns:
             return COND_GT
         if ins in ('jge', 'jnl', 'jae', 'jnb'):
             return COND_GE
-        if ins in ('js', 'jns'):
-            warn("Ingore condition jump {}.".format(ins))
+        if ins in ('js', 'jns', 'jp', 'jnp'):
+            warn("Ignore condition jump {}.".format(ins))
             return COND_UNSPPORT
         raise ValueError("Unspport instruction {}".format(ins))
 
@@ -346,23 +354,43 @@ class CompareIns:
             warn("Compare doesn't set condition. (0x{:x} {})".format(self.addr, self.asm))
         CompareIns.conds.get(self.condition, ("??", None))[0]
 
-    def guess_sign(self):
-        pass
+    def guess_condition(self):
+        assert self.condition == None or self.condition == COND_UNSPPORT
+        assert 2 == len(self.values)
+        assert self.signed != None
+        ins = self.asm.split()[0]
+        size = 8*self.size
+        values = self.values
+        v0 = signed(values[0], size) if self.signed else values[0]
+        v1 = signed(values[1], size) if self.signed else values[1]
+        if ins in ('cmp'):
+            if v0 < v1:
+                return COND_LE
+            if v0 > v1:
+                return COND_GT
+            if v0 == v1:
+                return COND_EQ
+        elif ins in ('test'):
+            return COND_EQ if v0 == v1 else COND_NE
+        raise ValueError("Unknow compare instruction {}".format(ins))
 
     def execute(self):
         assert 2 == len(self.values)
         if self._result != None:
             return self._result
-        if self.signed == None:
-            # TODO guess sign
-            assert self.signed != None
-            pass
-        assert self.condition != None
-        assert self.condition != COND_UNSPPORT
         values = self.values
-        v0 = signed(values[0], self.size) if self.signed else values[0]
-        v1 = signed(values[1], self.size) if self.signed else values[1]
+        size = 8*self.size
+        if self.signed == None:
+            warn("Unknow sign, guess by operands")
+            self.signed = guess_singed(values[0], size) or guess_singed(values[1], size)
+        if self.condition == None or self.condition == COND_UNSPPORT:
+            warn("Unknow condition, guess by operands");
+            self.condition = self.guess_condition()
+        v0 = signed(values[0], size) if self.signed else values[0]
+        v1 = signed(values[1], size) if self.signed else values[1]
         ins = self.asm.split()[0]
+        if self.condition not in CompareIns.conds:
+            raise ValueError("Unexpected condition in CompareIns")
         self._result = CompareIns.conds[self.condition][1](v0, v1)
         return self._result
 
@@ -373,18 +401,14 @@ class CompareIns:
 
     def symbolize(self, symvals):
         assert 2 == len(symvals)
-        if self.condition == None:
-            warn("Unknow condition, use True instead (0x{:x} {})".format(self.addr, self.asm))
-        elif self.condition == COND_UNSPPORT:
-            warn("Unsupport condition, use True instead (0x{:x} {})".format(self.addr, self.asm))
+        cond = self.execute()
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         exp = CompareIns.conds[self.condition][1](symvals[0], symvals[1])
-        if self.execute() == False:
+        if cond == False:
             exp = z3.Not(exp)
         self._expression = exp
         return exp
-
 
 
 def is_compare(ins):
@@ -728,22 +752,37 @@ def server_mode():
 
 def main():
     args = parser.parse_args()
+    # server mode
     if args.server_mode:
         server_mode()
         return 0
 
-    if not (args.seed_file and args.output_dir and args.cmd):
+    if not args.seed_file:
         parser.print_usage()
         return 101
-    if not leetaint(args.seed_file, args.output_dir, args.cmd):
-        print("leetaint fails")
-        return 102
-    trace_file = os.path.join(args.output_dir, 'trace.txt')
-    seed = readfile(args.seed_file)
-    testcasepath = os.path.join(args.output_dir, 'testcases')
-    instructions = parse_trace_file(trace_file)
-    result = concolic_execute(instructions, seed)
-    saved_files = save_all_testcases(result, seed, testcasepath)
+
+    # trace file
+    if args.trace_file:
+        seed = readfile(args.seed_file)
+        instructions = parse_trace_file(args.trace_file)
+        result = concolic_execute(instructions, seed)
+        return 0
+
+    # taint + concolic exe
+    if args.output_dir and args.cmd:
+        if not leetaint(args.seed_file, args.output_dir, args.cmd):
+            print("leetaint fails")
+            return 102
+        trace_file = os.path.join(args.output_dir, 'trace.txt')
+        seed = readfile(args.seed_file)
+        testcasepath = os.path.join(args.output_dir, 'testcases')
+        instructions = parse_trace_file(trace_file)
+        result = concolic_execute(instructions, seed)
+        saved_files = save_all_testcases(result, seed, testcasepath)
+        return 0
+
+    # invalid useage
+    parser.print_usage()
 
 
 if __name__ == '__main__':
