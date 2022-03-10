@@ -58,13 +58,12 @@ def get_byte(num, idx):
 
 
 COND_UNSPPORT = 0xff  # Unspport now, e.g. js
-COND_EQ = 0x1    # ==
-COND_NE  = 0x2   # !=
-COND_LT  = 0x3   # <
-COND_LE  = 0x4   # <=
-COND_GT = 0x5    # >
-COND_GE = 0x6    # >=
-
+COND_EQ = 0x1   # ==
+COND_NE = 0x2   # !=
+COND_LT = 0x3   # <
+COND_LE = 0x4   # <=
+COND_GT = 0x5   # >
+COND_GE = 0x6   # >=
 
 class Instruction:
     @staticmethod
@@ -176,7 +175,7 @@ class ArithmeticIns:
         self._expression = None
 
     def execute(self):
-        if self._result:
+        if self._result != None:
             return self._result
         ins = self.asm.split()[0]
         values = self.values
@@ -259,30 +258,55 @@ def is_division(ins):
 
 
 class CondJumpIns:
+    signed_ins = (
+        'jl', 'jnge',   # <
+        'jle', 'jng',   # <=
+        'jg',  'jnle',  # >
+        'jge', 'jnl',   # >=
+    )
+    unsigned_ins = (
+        'jz',   'je',   # ==
+        'jnz',  'jne',  # !=
+        'jb',   'jnae', # <
+        'jbe',  'jna',  # <=
+        'ja',   'jnbe', # >
+        'jae',  'jnb',  # >=
+    )
     def __init__(self, addr, asm):
         self.addr = addr
         self.asm = asm
 
     @property
+    def signed(self):
+        ins = self.asm.split()[0]
+        if ins in CondJumpIns.signed_ins:
+            return True
+        if ins in CondJumpIns.unsigned_ins:
+            return False
+        if ins in ('js', 'jns'):
+            warn("Ingore condition jump {}.".format(ins))
+            return False
+        raise ValueError("Unspport instruction {}".format(ins))
+
+    @property
     def condition(self):
         ins = self.asm.split()[0]
-        if ins == 'jz':
+        if ins in ('jz', 'je'):
             return COND_EQ
-        if ins == 'jnz':
+        if ins == ('jnz', 'jne'):
             return COND_NE
-        if ins in ('jl', 'jb'):
+        if ins in ('jl', 'jnge', 'jb', 'jnae'):
             return COND_LT
-        if ins in ('jle', 'jbe'):
+        if ins in ('jle','jng', 'jbe', 'jna'):
             return COND_LE
-        if ins in ('ja', 'jnle', 'jnbe'):
+        if ins in ('jg', 'jnle', 'ja', 'jnbe'):
             return COND_GT
-        if ins in ('jnl', 'jnb'):
+        if ins in ('jge', 'jnl', 'jae', 'jnb'):
             return COND_GE
         if ins in ('js', 'jns'):
             warn("Ingore condition jump {}.".format(ins))
             return COND_UNSPPORT
-        else:
-            raise ValueError("Unspport instruction {}".format(ins))
+        raise ValueError("Unspport instruction {}".format(ins))
 
     def execute(self):
         raise ValueError("Condition Jump Instruction can't execute")
@@ -313,28 +337,34 @@ class CompareIns:
         self.offsets = offsets
         self.values = values
         self.condition = None
+        self.signed = None
+        self._result = None
         self._expression = None
 
     def strcond(self):
         if self.condition == None:
             warn("Compare doesn't set condition. (0x{:x} {})".format(self.addr, self.asm))
-        if self.condition == COND_EQ:
-            return "=="
-        if self.condition == COND_NE:
-            return "!="
-        if self.condition == COND_LT:
-            return "<"
-        if self.condition == COND_LE:
-            return "<="
-        if self.condition == COND_GT:
-            return ">"
-        if self.condition == COND_GE:
-            return ">="
-        # Unspport
-        return "??"
+        CompareIns.conds.get(self.condition, ("??", None))[0]
+
+    def guess_sign(self):
+        pass
 
     def execute(self):
-        raise ValueError("Compare Instruction can't execute")
+        assert 2 == len(self.values)
+        if self._result != None:
+            return self._result
+        if self.signed == None:
+            # TODO guess sign
+            assert self.signed != None
+            pass
+        assert self.condition != None
+        assert self.condition != COND_UNSPPORT
+        values = self.values
+        v0 = signed(values[0], self.size) if self.signed else values[0]
+        v1 = signed(values[1], self.size) if self.signed else values[1]
+        ins = self.asm.split()[0]
+        self._result = CompareIns.conds[self.condition][1](v0, v1)
+        return self._result
 
     @property
     def expression(self):
@@ -350,6 +380,8 @@ class CompareIns:
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         exp = CompareIns.conds[self.condition][1](symvals[0], symvals[1])
+        if self.execute() == False:
+            exp = z3.Not(exp)
         self._expression = exp
         return exp
 
@@ -404,6 +436,7 @@ def parse_trace_file(fname):
                     warn("Single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
                 else:
                     instructions[prevcmpidx].condition = ins.condition
+                    instructions[prevcmpidx].signed = ins.signed
             else:
                 instructions.append(ins)
     return instructions
@@ -543,7 +576,8 @@ def concolic_execute(instructions, seed):
             pc = []
             if prevpcidx != NONE_ORDER:
                 pc = path_contraintion[prevpcidx]
-            if ins.condition != COND_EQ:    # 突破不等交给 Fuzzer，而不是 SymExe
+            # 突破不等交给 Fuzzer，而不是 SymExe
+            if not (ins.condition == COND_EQ and ins.execute() == True):
                 solver = z3.Solver()
                 solver.add(z3.Not(exp), *pc)
                 rst = solver.check()
