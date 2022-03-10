@@ -530,14 +530,25 @@ def is_original(value, offset, seed):
     return all(off == NONE_OFFSET or get_byte(value, i) == seed[off] for i, off in enumerate(offset))
 
 
+def enable_sign_extend(val, offset, idx):
+    assert offset[idx] != NONE_OFFSET
+    ext = 0xff if get_byte(val, idx) & 0x80 else 0x0
+    return all(offset[i] == NONE_OFFSET and get_byte(val, i) == ext for i in range(idx+1, len(offset)))
+
+
 def symbolize_value(value, offset):
     assert offset
     exp = None
+    len_ = len(offset)
     for i, off in enumerate(offset):
         if off == NONE_OFFSET:
             byte = z3.BitVecVal(get_byte(value, i), 8)
         else:
             byte = z3.BitVec("b{}".format(off), 8)
+            if i+1 < len_ and enable_sign_extend(value, offset, i):
+                byte = z3.SignExt(8*(len_ - i - 1), byte)
+                exp = z3.Concat(byte, exp) if exp != None else byte
+                return exp
         exp = z3.Concat(byte, exp) if exp != None else byte
     #return z3.simplify(exp)
     return exp
@@ -687,7 +698,8 @@ def save_all_testcases(result, seed, outdir):
         repls.sort(key=operator.itemgetter(0))
         name = '#'.join("{:02x}@b{}".format(v, s) for s, v in repls)
         for s, v in repls:
-            input_[s] = v & 0xff
+            assert (v & (~0xff)) == 0x0
+            input_[s] = v
         fnamepath = os.path.join(outdir, name)
         if os.path.exists(fnamepath):
             warn("{} exists, skip".format(name))
