@@ -641,16 +641,20 @@ def save_all_testcases(result, seed, outdir):
 
 def server_mode():
     # 握手
-    type_, cmdline = input().split(':')
-    if 'cmdline' != type_:
+    type_cmdline = 'cmdline:'
+    type_outdir = 'outdir:'
+    type_seed = 'seed:'
+    cmdline = input().strip()
+    if not cmdline.startswith(type_cmdline):
         return 101
-    type_, outdir = input().split(':')
-    if 'outdir' != type_:
+    cmdline = cmdline[len(type_cmdline):].lstrip()
+
+    outdir = input().strip()
+    if not outdir.startswith(type_outdir):
         return 101
+    outdir = outdir[len(type_outdir):].lstrip()
     print('Ok')
 
-    cmdline = cmdline.strip()
-    outdir = outdir.strip()
     loop_cnt = 0
     while True:
         try:
@@ -661,11 +665,11 @@ def server_mode():
         if request.startswith('Bye'):
             print('Bye')
             break
-        type_, seed_file = request.split(':')
-        seed_file = seed_file.strip()
-        if 'seed' != type_:
+        if not request.startswith(type_seed):
             print('error: invalid type')
             continue
+        seed_file = request[len(type_seed):].strip()
+
         req_outdir = os.path.join(outdir, '{:06}'.format(loop_cnt))
 
         if not leetaint(seed_file, req_outdir, cmdline):
@@ -678,8 +682,10 @@ def server_mode():
         result = concolic_execute(instructions, seed)
         saved_files = save_all_testcases(result, seed, testcasepath)
         print("generated: ", len(saved_files))
+        print("generated: ", len(saved_files), file=sys.stderr)
         for no, fpath in enumerate(saved_files):
             print("input{}: {}".format(no, fpath))
+            print("input{}: {}".format(no, fpath), file=sys.stderr)
 
         loop_cnt += 1
 

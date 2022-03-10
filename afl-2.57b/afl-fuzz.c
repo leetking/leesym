@@ -100,7 +100,8 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
           *in_bitmap,                 /* Input bitmap                     */
           *doc_path,                  /* Path to documentation dir        */
           *target_path,               /* Path to target binary            */
-          *orig_cmdline;              /* Original command line            */
+          *orig_cmdline,              /* Original command line            */
+          *target_cmdline;            /* target cmdline line              */
 
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
 static u32 hang_tmout = EXEC_TIMEOUT; /* Timeout used for hang det (ms)   */
@@ -148,6 +149,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
 static s32 leesym_pid,                /* leesym server pid */
            leesym_stdin,              /* leesym's stdin pipe (afl write) */
            leesym_stdout;             /* leesym's stdout pipe (afl read) */
+char const *leesym_path;
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
@@ -266,6 +268,7 @@ struct queue_entry {
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
 
+  u8 was_concolized;
 };
 
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
@@ -402,6 +405,35 @@ static void shuffle_ptrs(void** ptrs, u32 cnt) {
 
   }
 
+}
+
+// 不考虑性能问题
+static ssize_t read_line(int fd, char *buff, size_t len)
+{
+    ssize_t rdsize = 0;
+    while (rdsize < len - 1) {  // 留下 '\0'
+        ssize_t ret = read(fd, buff+rdsize, 1);
+        if (ret < 0 || buff[rdsize] == '\0')
+            break;
+        ++rdsize;
+        if (buff[rdsize - 1] == '\n')
+            break;
+    }
+    buff[rdsize] = '\0';
+    return rdsize;
+}
+
+static ssize_t write_string(int fd, char const *string)
+{
+    ssize_t wrsize = 0;
+    size_t len = strlen(string);
+    while (wrsize < len) {
+        ssize_t wr = write(fd, string + wrsize, len - wrsize);
+        if (-1 == wr)
+            return -1;
+        wrsize += wr;
+    }
+    return wrsize;
 }
 
 
@@ -789,7 +821,7 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 /* Append new test case to the queue. */
 
-static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
+static void leesym_add_to_queue(u8* fname, u32 len, u8 passed_det, u8 was_concolized) {
 
   struct queue_entry* q = ck_alloc(sizeof(struct queue_entry));
 
@@ -797,6 +829,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
+  q->was_concolized = was_concolized;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -821,6 +854,10 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   last_path_time = get_cur_time();
 
+}
+
+static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
+    leesym_add_to_queue(fname, len, passed_det, 0);
 }
 
 
@@ -4982,6 +5019,97 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 
 }
 
+static u8 leesym_read_num_inputs(int *num)
+{
+    *num = -1;
+    char type[] = "generated:";
+    size_t type_len = sizeof(type)-1;
+    char buff[1024];
+    if (read_line(leesym_stdout, buff, 1024) < 0) {
+        WARNF("fails to read num of inputs from leesym.\n");
+        return 0;
+    }
+    if (strlen(buff) < type_len || 0 != strncmp(type, buff, type_len))
+        return 0;
+    *num = atoi(buff + type_len);
+    return 1;
+}
+
+static void free_string_vector(char **strings, int num)
+{
+    for (int i = 0; i < num; ++i)
+        ck_free(strings[i]);
+    ck_free(strings);
+}
+
+static char *leesym_read_new_input(int num)
+{
+    char buff[1024];
+    char *p;
+    char *seed_file;
+    char type[] = "input123456789012345:";
+    snprintf(type, sizeof(type)-1, "input%d:", num);
+    size_t type_len = strlen(type);
+
+    if (read_line(leesym_stdout, buff, 1024) < 0) {
+        WARNF("fails to read a new seed");
+        return NULL;
+    }
+    if (strlen(buff) < type_len || 0 != strncmp(type, buff, type_len))
+        return NULL;
+    // skip spaces
+    for (p = buff + type_len; isspace(*p); ++p)
+        ;
+    seed_file = ck_strdup(p);
+    // strip right spaces
+    for (p = seed_file + strlen(seed_file); isspace(p[-1]); --p)
+        ;
+    *p = '\0';
+    return seed_file;
+}
+
+static char **leesym_get_all_inputs(struct queue_entry *queue_cur, int *num_inputs)
+{
+    char **inputs = NULL;
+    int rd_cnt;
+    char request[PATH_MAX+1] = "";
+    snprintf(request, PATH_MAX, "seed: %s\n", queue_cur->fname);
+
+    if (leesym_pid < 0) {
+        FATAL("leesym server is done.");
+        return NULL;
+    }
+
+    *num_inputs = -1;
+    if (write_string(leesym_stdin, request) < 0) {
+        WARNF("seeding new seed request to leesym fails. (%s)", queue_cur->fname);
+        return NULL;
+    }
+    if (!leesym_read_num_inputs(num_inputs)) {
+        WARNF("fails to read `generated' message, invalid format?");
+        goto read_fails;
+    }
+
+    if (*num_inputs == 0) {
+        SAYF("no inputs found.\n");
+        return inputs;
+    }
+
+    inputs = ck_alloc(sizeof(char *) * (*num_inputs));
+    for (rd_cnt = 0; rd_cnt < *num_inputs; ++rd_cnt) {
+        inputs[rd_cnt] = leesym_read_new_input(rd_cnt);
+        if (!inputs[rd_cnt])
+            goto free_vector;
+    }
+    return inputs;
+
+free_vector:
+    free_string_vector(inputs, rd_cnt);
+    inputs = NULL;
+read_fails:
+    return inputs;
+}
+
 
 /* Take the current entry from the queue, fuzz it for a while. This
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
@@ -6092,6 +6220,35 @@ skip_user_extras:
   stage_cycles[STAGE_EXTRAS_AO] += stage_max;
 
 skip_extras:
+
+
+  /****************
+   * LEESYM STAGE *
+   ***************/
+  stage_name = "leesym generating inputs";
+  stage_short = "leesym_gi";
+  stage_max = 0;
+  if (queue_cur->was_concolized)
+      goto skip_leesym;
+  char **inputs = leesym_get_all_inputs(queue_cur, &stage_max);
+  if (-1 == stage_max) {
+      FATAL("can't get inputs from leesym.");
+      stage_max = 0;
+  }
+  if (0 == stage_max)
+      SAYF("no inputs found from leesym.\n");
+
+  stage_name = "leesym fuzzing every input";
+  stage_short = "leesym_fz";
+  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
+      // TODO 继续完成交互
+      SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
+  }
+  queue_cur->was_concolized = 1;
+  if (inputs) free_string_vector(inputs, stage_max);
+
+skip_leesym:
+
 
   /* If we made this to here without jumping to havoc_stage or abandon_entry,
      we're properly done with deterministic steps and can mark it as such
@@ -7770,44 +7927,69 @@ static void save_cmdline(u32 argc, char** argv) {
 #ifndef AFL_LIB
 
 
+static char *save_target_cmdline(int argc, char **argv)
+{
+    char *buf;
+    int len = 1;
+    for (int i = 0; i < argc; ++i)
+        len += strlen(argv[i])+1;
+    buf = target_cmdline = ck_alloc(len * sizeof(char*));
+    for (int i = 0; i < argc; ++i) {
+        int l = strlen(argv[i]);
+        memcpy(buf, argv[i], l);
+        buf += l;
+        if (i != argc-1) *(buf++) = ' ';
+    }
+    *buf = '\0';
+    printf("target_cmdline: %s\n", target_cmdline);
+    return target_cmdline;
+}
+
+
 void setup_leesym()
 {
-    // -s
-    char const *leesym = "./leesym.py";
-    s32 iopipe[2];
-    if (pipe(iopipe) < 0) FATAL("pipe fails");
+    char const *leesym_root = getenv("LEESYM_ROOT");
+    if (!leesym_root) {
+        SAYF("No LEESYM_ROOT given, use ./ instead.\n");
+        leesym_root = ".";
+    }
+    leesym_path = alloc_printf("%s/leesym.py", leesym_root);
+
+    s32 stdin_pipe[2], stdout_pipe[2];
+    if (pipe(stdin_pipe) < 0) FATAL("pipe stdin fails");
+    if (pipe(stdout_pipe) < 0) FATAL("pipe stdout fails");
     pid_t pid = fork();
     if (-1 == pid) {
         FATAL("setup leesym fails");
     }
     // leesym
     else if (0 == pid) {
-        if (dup2(iopipe[0], 0) < 0) FATAL("dup2 stdin fails");
-        if (dup2(iopipe[1], 1) < 0) FATAL("dup2 stdout fails");
-        close(iopipe[0]);
-        close(iopipe[1]);
-        execl(leesym, "-s", NULL);
+        if (dup2(stdin_pipe[0], 0) < 0) FATAL("dup2 stdin fails");
+        if (dup2(stdout_pipe[1], 1) < 0) FATAL("dup2 stdout fails");
+        close(stdin_pipe[0]);
+        close(stdout_pipe[1]);
+        execl(leesym_path, leesym_path, "-s", NULL);
         // never return
     }
 
     leesym_pid = pid;
-    leesym_stdout = iopipe[0];
-    leesym_stdin = iopipe[1];
+    leesym_stdin = stdin_pipe[1];
+    leesym_stdout = stdout_pipe[0];
+    close(stdin_pipe[0]);
+    close(stdout_pipe[1]);
 
-    // FIXME 这里不是 orig_cmdline，需要目标程序信息
-    // pipe 好像使用不正确
-    u8 *cmdline = alloc_printf("cmdline: %s\n", orig_cmdline);
-    if (write(leesym_stdin, cmdline, strlen(cmdline)) != strlen(cmdline))
+    u8 *cmdline = alloc_printf("cmdline: %s\n", target_cmdline);
+    if (write_string(leesym_stdin, cmdline) < 0)
         FATAL("handsake with leesym fails in cmdline stage");
     ck_free(cmdline);
 
-    u8 *outdir = alloc_printf("outdir: %s\n", out_dir);
-    if (write(leesym_stdin, outdir, strlen(outdir)) != strlen(outdir))
+    u8 *outdir = alloc_printf("outdir: %s/leesym\n", out_dir);
+    if (write_string(leesym_stdin, outdir) < 0)
         FATAL("handsake with leesym fails in outdirn stage");
     ck_free(outdir);
 
-    u8 buff[1024];
-    ssize_t rdsize = read(leesym_stdout, buff, 1024);
+    u8 buff[64];
+    ssize_t rdsize = read_line(leesym_stdout, buff, 64);
     if (rdsize < 2 || 0 != strncmp("Ok", buff, 2))
         FATAL("handsake with leesym fails in final stage");
 
@@ -8051,6 +8233,7 @@ int main(int argc, char** argv) {
 
 
   save_cmdline(argc, argv);
+  save_target_cmdline(argc - optind, argv + optind);
 
   setup_leesym();
 
