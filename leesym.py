@@ -122,6 +122,7 @@ class Instruction:
         if Instruction._is_condjmp(ins):
             return CondJumpIns(addr, asm)
         if ins in ('add', 'adc', 'sub', 'sbb', 'mul', 'imul', 'div', 'idiv',
+                   'inc', 'dec',
                    'not', 'and', 'or', 'xor', 'pxor', 'pand', 'por',
                    'shr', 'shl', 'lea',
                    'ror', 'rol', 'sar', 'sal', 'bswap'):
@@ -244,6 +245,10 @@ class ArithmeticIns:
         values = self.values
         if ins == 'not':
             result = ~values[0]
+        elif ins == 'inc':
+            result = values[0]+1
+        elif ins == 'dec':
+            result = values[0]-1
         elif ins == 'lea':
             assert 4 == len(values)
             result = values[0] + values[1] * values[2] + values[3]
@@ -287,6 +292,10 @@ class ArithmeticIns:
         values = self.values
         if ins == 'not':
             exp = ~symvals[0]
+        elif ins == 'inc':
+            exp = symvals[0]+1
+        elif ins == 'dec':
+            exp = symvals[0]-1
         elif ins == 'lea':
             assert 4 == len(values)
             exp = symvals[0] + symvals[1] * values[2] + values[3]
@@ -579,7 +588,7 @@ def build_datagraph(instructions, offset2idxes):
     return datagraph
 
 
-def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=10):
+def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=100):
     cnts = [NONE_ORDER for _ in instructions]
     for i, ins in enumerate(instructions):
         assert ins.depth != None and ins.depth_prev != None
