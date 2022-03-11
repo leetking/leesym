@@ -16,6 +16,9 @@ import z3
 from leetaint import leetaint
 
 be_quiet = False
+enable_debug = True
+OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
+LOOPINS_MAX = 100
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
@@ -32,6 +35,11 @@ parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
 parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')
 parser.add_argument('cmd', nargs='*', help='cmd')
+
+
+def debug(*args, **kargs):
+    if enable_debug and not be_quiet:
+        print("DEBUG: ", *args, **kargs, file=sys.stderr)
 
 
 def warn(*args, **kargs):
@@ -257,7 +265,7 @@ class ArithmeticIns:
         elif ins in ArithmeticIns.ops:
             result = ArithmeticIns.ops[ins](values[0], values[1])
             if ins in ('pxor', 'pand', 'por'):
-                print("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
+                debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
         # fixed size, and convert signed to unsigned for sub, sbb
@@ -531,11 +539,10 @@ def find_same_operand(ins, offset, value):
 
 
 def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidxes):
-    limit = 200                # 最多向上搜索 limit 条
     previdx = NONE_ORDER        # -1
     for idxes in sameoffidxes:
         i = bisect_left(idxes, idx)
-        end = max(0, i - limit)
+        end = max(0, i - OPERAND_DISTANCE_MAX)
         while i > end and idxes[i-1] > previdx:
             i -= 1
             ins = instructions[idxes[i]]
@@ -558,11 +565,42 @@ def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidx
 def build_datagraph(instructions, offset2idxes):
     datagraph = [[] for _ in instructions]
     for i, ins in enumerate(instructions):
+        ins.depth = 0
+        ins.depth_prev = NONE_ORDER
         for offset, value in zip(ins.offsets, ins.values):
             sameoffidxes = (offset2idxes[off] for off in offset if off != NONE_OFFSET)
             previdx = previous_instruction(datagraph, instructions, i, offset, value, sameoffidxes)
             datagraph[i].append(previdx)
+            if previdx != NONE_ORDER:
+                previns = instructions[previdx]
+                if previns.depth + 1 > ins.depth:
+                    ins.depth = previns.depth + 1
+                    ins.depth_prev = previdx
     return datagraph
+
+
+def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=10):
+    cnts = [NONE_ORDER for _ in instructions]
+    for i, ins in enumerate(instructions):
+        assert ins.depth != None and ins.depth_prev != None
+        addr = ins.addr
+        addrcnt = len(addr2idxes[addr])
+        if addrcnt <= loopinsmax or ins.depth <= loopinsmax:
+            ins.optimized = False
+            continue
+        # maybe need optimize
+        k = ins.depth_prev
+        if cnts[k] != NONE_ORDER:
+            cnts[i] = cnts[k] + 1
+        else:
+            c = 1
+            while k != NONE_ORDER:
+                prevaddr = instructions[k].addr
+                if addr == prevaddr:
+                    c += 1
+                k = instructions[k].depth_prev
+            cnts[i] = c
+        ins.optimized = True if cnts[i] > loopinsmax else False
 
 
 def build_cmpgraph(instructions):
@@ -631,25 +669,23 @@ def is_offset_empty(offsets):
     return not offsets or all(off == NONE_OFFSET for off in offsets)
 
 
-def solve(*pcs):
-    pass
-
-
 def concolic_execute(instructions, seed):
     offset2idxes = groupby_offset(instructions)
     addr2idxes = groupby_addr(instructions)
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
+    # 优化循环指令
+    optimize_instruction(instructions, datagraph, addr2idxes)
     ret = []
     path_contraintion = {}
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
         # for every operand
-        symvals = []
+        symvals = [None for _ in ins.offsets]
         for k, (offset, value) in enumerate(zip(ins.offsets, ins.values)):
             previdx = datagraph[i][k]
             symval = None
-            if not is_offset_empty(offset):
+            if not is_offset_empty(offset) and not ins.optimized:
                 if previdx == NONE_ORDER and is_original(value, offset, seed):
                     symval = symbolize_value(value, offset)
                 elif previdx != NONE_ORDER:
@@ -667,16 +703,15 @@ def concolic_execute(instructions, seed):
             else:
                 symval = z3.BitVecVal(value, 8*ins.size)
             #symval = z3.simplify(symval)
-            symvals.append(symval)
+            symvals[k] = symval
 
         if is_compare(ins):
             prevpcidx = cmpgraph[i]
-            exp = ins.symbolize(symvals)
-            pc = []
-            if prevpcidx != NONE_ORDER:
-                pc = path_contraintion[prevpcidx]
-            # 突破不等交给 Fuzzer，而不是 SymExe
-            if not (ins.condition == COND_EQ and ins.execute() == True):
+            exp = ins.symbolize(symvals)      if not ins.optimized else True
+            pc = path_contraintion[prevpcidx] if previdx != NONE_ORDER else []
+            path_contraintion[i] = pc + [exp] if not ins.optimized else pc
+            # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
+            if not (ins.condition == COND_EQ and ins.execute() == True) and not ins.optimized:
                 solver = z3.Solver()
                 solver.add(z3.Not(exp), *pc)
                 rst = solver.check()
@@ -684,22 +719,19 @@ def concolic_execute(instructions, seed):
                     model = solver.model()
                     if len(model):
                         ret.append(str(model))
-                    info(model)
+                    debug(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
-            path_contraintion[i] = pc + [exp]
         elif is_jump(ins):
             pass
         elif is_arimetic(ins):
-            if is_division(ins):
+            if is_division(ins) and not ins.optimized:
                 prevpcidx = cmpgraph[i]
-                pc = []
-                if prevpcidx != NONE_ORDER:
-                    pc = path_contraintion[prevpcidx]
+                pc = path_contraintion[prevpcidx] if previdx != NONE_ORDER else []
                 solver = z3.Solver()
                 solver.add(0 == symvals[1], *pc)
                 rst = solver.check()
@@ -707,7 +739,7 @@ def concolic_execute(instructions, seed):
                     model = solver.model()
                     if len(model):
                         ret.append(str(model))
-                    info(model)
+                    debug(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
