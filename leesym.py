@@ -685,7 +685,7 @@ def concolic_execute(instructions, seed):
     cmpgraph = build_cmpgraph(instructions)
     # 优化循环指令
     optimize_instruction(instructions, datagraph, addr2idxes)
-    ret = []
+    ret = set()
     path_contraintion = {}
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
@@ -727,7 +727,7 @@ def concolic_execute(instructions, seed):
                 if rst == z3.sat:
                     model = solver.model()
                     if len(model):
-                        ret.append(str(model))
+                        ret.add(str(model))
                     debug(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
@@ -747,7 +747,7 @@ def concolic_execute(instructions, seed):
                 if rst == z3.sat:
                     model = solver.model()
                     if len(model):
-                        ret.append(str(model))
+                        ret.add(str(model))
                     debug(model)
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
@@ -760,7 +760,7 @@ def concolic_execute(instructions, seed):
         else:
             raise ValueError("Unspport instruction {}".format(ins.asm))
 
-    return ret
+    return list(ret)
 
 
 def plot_datagraph(instructions, datagraph, outstrm=sys.stdout):
