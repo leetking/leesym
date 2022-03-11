@@ -7,6 +7,7 @@ import time
 import itertools
 import operator
 import argparse
+from random import randint
 from collections import OrderedDict
 from bisect import bisect_left
 
@@ -14,6 +15,7 @@ import z3
 
 from leetaint import leetaint
 
+be_quiet = False
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
@@ -25,6 +27,7 @@ parser.add_argument('-s', '--server',
         default=False,
         help="server mode with stdin and stdout")
 parser.add_argument('-i', dest='seed_file', help='A seed file')
+parser.add_argument('-q', dest='quiet', help='restrain message output')
 parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
 parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')
@@ -32,11 +35,13 @@ parser.add_argument('cmd', nargs='*', help='cmd')
 
 
 def warn(*args, **kargs):
-    print("WARN:", *args, **kargs, file=sys.stderr)
+    if not be_quiet:
+        print("WARN:", *args, **kargs, file=sys.stderr)
 
 
 def info(*args, **kargs):
-    print("INFO:", *args, **kargs, file=sys.stderr)
+    if not be_quiet:
+        print("INFO:", *args, **kargs, file=sys.stderr)
 
 
 def int_fromhex(s: str) -> int:
@@ -62,6 +67,14 @@ def guess_singed(uv, size):
 def get_byte(num, idx):
     # int.to_bytes(1, 'little')
     return (num >> (8*idx)) & 0xff
+
+
+def subpart(bitvec, start, end):
+    size = bitvec.size()
+    hi = size - start - 1
+    lo = size - end
+    # [hi, lo]
+    return z3.Extract(hi, lo, bitvec)
 
 
 COND_UNSPPORT = 0xff  # Unspport now, e.g. js
@@ -100,8 +113,10 @@ class Instruction:
             return JumpIns(addr, asm, size, result, offsets, values)
         if Instruction._is_condjmp(ins):
             return CondJumpIns(addr, asm)
-        if ins in ('add', 'sub', 'mul', 'imul', 'div', 'idiv', 'not', 'and', 'or', 'xor', 'shr', 'shl', 'lea',
-                   'ror', 'rol', 'sar', 'sal'):
+        if ins in ('add', 'adc', 'sub', 'sbb', 'mul', 'imul', 'div', 'idiv',
+                   'not', 'and', 'or', 'xor', 'pxor', 'pand', 'por',
+                   'shr', 'shl', 'lea',
+                   'ror', 'rol', 'sar', 'sal', 'bswap'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
@@ -159,7 +174,7 @@ class ArithmeticIns:
     @staticmethod
     def symrol(symval, shift, size):
         shift %= size
-        return ArithmeticIns.symror(val, size - shift, size)
+        return ArithmeticIns.symror(symval, size - shift, size)
 
     @staticmethod
     def idiv(a, b, size):
@@ -173,6 +188,11 @@ class ArithmeticIns:
         # Python 中 >> 就是算术右移位
         return unsigned(signed(uv, size) >> shift, size)
 
+    @staticmethod
+    def bswap(symval, size):
+        assert symval.size() == 8*size
+        return z3.Concat(*reversed(tuple(subpart(symval, i*8, (i+1)*8) for i in range(size))))
+
     ops = {
         #'not': operator.not_,      # 按bits操作
         #'lea': None,
@@ -181,13 +201,19 @@ class ArithmeticIns:
         #'shr': operator.rshift,    # 逻辑右移
         #'idiv': None,
         #'div': None,
+        #'bswap': None,             # 按字节交换
         'add': operator.add,
+        'adc': operator.add,        # 加上 CF 标志位的加法
         'sub': operator.sub,
+        'sbb': operator.sub,        # 减去 CF 标志位的减法，用于实现操作寄存器长度的减法操作. e.g. 32 模拟 64 位运算
         'mul': operator.mul,
         'imul': operator.mul,
         'and': operator.and_,
+        'pand': operator.and_,      # MMX 指令
         'or': operator.or_,
+        'por': operator.or_,
         'xor': operator.xor,
+        'pxor': operator.xor,
         'shl': operator.lshift,
         'sal': operator.lshift,     # 算术左移
     }
@@ -201,6 +227,8 @@ class ArithmeticIns:
         self._result = None
         self._expression = None
 
+    # TODO 支持 bswap 指令, png2pnm 中使用了此命令
+    # not_kitty_alpha.png 文件导致崩溃
     def execute(self):
         if self._result != None:
             return self._result
@@ -223,11 +251,16 @@ class ArithmeticIns:
             result = ArithmeticIns.idiv(values[0], values[1], 8*self.size)
         elif ins == 'div':
             result = values[0] // values[1]
+        elif ins == 'bswap':
+            assert self.size in (4, 8)
+            result = int.from_bytes(values[0].to_bytes(self.size, 'little'), 'big')
         elif ins in ArithmeticIns.ops:
             result = ArithmeticIns.ops[ins](values[0], values[1])
+            if ins in ('pxor', 'pand', 'por'):
+                print("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
-        # fixed size
+        # fixed size, and convert signed to unsigned for sub, sbb
         self._result = result & ((1<<(8*self.size))-1)
         return self._result
 
@@ -262,11 +295,15 @@ class ArithmeticIns:
             exp = symvals[0] / symvals[1]
         elif ins == 'div':
             exp = z3.UDiv(symvals[0], symvals[1])
+        elif ins == 'bswap':
+            assert self.size in (4, 8)
+            exp =ArithmeticIns.bswap(symvals[0], self.size)
         elif ins in ArithmeticIns.ops:
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
-        self._expression = exp
+        self._expression = z3.simplify(exp)
+        #self._expression = exp
         return exp
 
 
@@ -381,12 +418,15 @@ class CompareIns:
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
         if ins in ('cmp'):
-            if v0 < v1:
-                return COND_LE
-            if v0 > v1:
-                return COND_GT
-            if v0 == v1:
-                return COND_EQ
+            if randint(0, 99) >= 50:
+                return COND_EQ if v0 == v1 else COND_NE
+            else:
+                if v0 < v1:
+                    return COND_LE
+                if v0 > v1:
+                    return COND_GT
+                if v0 == v1:
+                    return COND_EQ
         elif ins in ('test'):
             return COND_EQ if v0 == v1 else COND_NE
         raise ValueError("Unknow compare instruction {}".format(ins))
@@ -583,21 +623,12 @@ def symbolize_value(value, offset):
                 exp = z3.Concat(byte, exp) if exp != None else byte
                 return exp
         exp = z3.Concat(byte, exp) if exp != None else byte
-    #return z3.simplify(exp)
-    return exp
+    return z3.simplify(exp)
+    #return exp
 
 
 def is_offset_empty(offsets):
     return not offsets or all(off == NONE_OFFSET for off in offsets)
-
-
-def subpart(bitvec, start, end):
-    #return z3.simplify(z3.Extract(bitvec))
-    size = bitvec.size()
-    hi = size - start - 1
-    lo = size - end
-    # [hi, lo]
-    return z3.Extract(hi, lo, bitvec)
 
 
 def solve(*pcs):
@@ -799,6 +830,11 @@ def server_mode():
 
 def main():
     args = parser.parse_args()
+
+    if args.quiet:
+        global be_quiet
+        be_quiet = True
+
     # server mode
     if args.server_mode:
         server_mode()

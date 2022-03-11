@@ -464,6 +464,7 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
 VOID traceXORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
     // xor eax, eax ==> mov eax, 0x0
+    // pxor xmm0, xmm0 ==> mov xmm0, 0x0
     if (reg1 == reg2) {
         clearRegister(reg1, size);
         return;

@@ -6286,10 +6286,8 @@ skip_extras:
       off_t fsize = 0;
       u8 *input = readfile(inputs[stage_cur], &fsize);
       struct queue_entry *old_queue_top = queue_top;
-      if (input && common_fuzz_stuff(argv, input, fsize)) {
-          ck_free(input);
-          goto abandon_entry;
-      }
+      // TODO 这里不跳过有啥问题吗？
+      common_fuzz_stuff(argv, input, fsize);
       // 对于 leesym 发现的种子，不再进行符号执行
       if (queue_top != old_queue_top) mark_as_leesym_done(queue_top);
       if (input) ck_free(input);
