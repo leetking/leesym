@@ -27,7 +27,7 @@ parser.add_argument('-s', '--server',
         default=False,
         help="server mode with stdin and stdout")
 parser.add_argument('-i', dest='seed_file', help='A seed file')
-parser.add_argument('-q', dest='quiet', help='restrain message output')
+parser.add_argument('-q', dest='quiet', action='store_true', default=False, help='restrain message output')
 parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
 parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')

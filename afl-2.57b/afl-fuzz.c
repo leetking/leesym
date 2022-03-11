@@ -5040,8 +5040,10 @@ static u8 leesym_read_num_inputs(int *num)
         WARNF("fails to read num of inputs from leesym.\n");
         return 0;
     }
-    if (strlen(buff) < type_len || 0 != strncmp(type, buff, type_len))
+    if (strlen(buff) < type_len || 0 != strncmp(type, buff, type_len)) {
+        WARNF("Not generated type (%s)\n", buff);
         return 0;
+    }
     *num = atoi(buff + type_len);
     return 1;
 }
@@ -5265,6 +5267,41 @@ static u8 fuzz_one(char** argv) {
     }
 
   }
+
+  /****************
+   * LEESYM STAGE *
+   ***************/
+  stage_name = "leesym generating inputs";
+  stage_short = "sym_gi";
+  stage_max = 0;
+  if (queue_cur->was_concolized)
+      goto skip_leesym;
+  char **inputs = leesym_get_all_inputs(queue_cur, &stage_max);
+  if (-1 == stage_max) {
+      FATAL("can't get inputs from leesym.");
+      stage_max = 0;
+  }
+  if (0 == stage_max)
+      SAYF("no inputs found from leesym.\n");
+
+  stage_name = "leesym fuzzing every input";
+  stage_short = "sym_fz";
+  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
+      SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
+      off_t fsize = 0;
+      u8 *input = readfile(inputs[stage_cur], &fsize);
+      struct queue_entry *old_queue_top = queue_top;
+      // TODO 这里不跳过有啥问题吗？
+      common_fuzz_stuff(argv, input, fsize);
+      // 对于 leesym 发现的种子，不再进行符号执行
+      if (queue_top != old_queue_top) mark_as_leesym_done(queue_top);
+      if (input) ck_free(input);
+  }
+  queue_cur->was_concolized = 1;
+  if (inputs) free_string_vector(inputs, stage_max);
+
+skip_leesym:
+
 
   /************
    * TRIMMING *
@@ -6261,41 +6298,6 @@ skip_user_extras:
   stage_cycles[STAGE_EXTRAS_AO] += stage_max;
 
 skip_extras:
-
-
-  /****************
-   * LEESYM STAGE *
-   ***************/
-  stage_name = "leesym generating inputs";
-  stage_short = "sym_gi";
-  stage_max = 0;
-  if (queue_cur->was_concolized)
-      goto skip_leesym;
-  char **inputs = leesym_get_all_inputs(queue_cur, &stage_max);
-  if (-1 == stage_max) {
-      FATAL("can't get inputs from leesym.");
-      stage_max = 0;
-  }
-  if (0 == stage_max)
-      SAYF("no inputs found from leesym.\n");
-
-  stage_name = "leesym fuzzing every input";
-  stage_short = "sym_fz";
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-      SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
-      off_t fsize = 0;
-      u8 *input = readfile(inputs[stage_cur], &fsize);
-      struct queue_entry *old_queue_top = queue_top;
-      // TODO 这里不跳过有啥问题吗？
-      common_fuzz_stuff(argv, input, fsize);
-      // 对于 leesym 发现的种子，不再进行符号执行
-      if (queue_top != old_queue_top) mark_as_leesym_done(queue_top);
-      if (input) ck_free(input);
-  }
-  queue_cur->was_concolized = 1;
-  if (inputs) free_string_vector(inputs, stage_max);
-
-skip_leesym:
 
 
   /* If we made this to here without jumping to havoc_stage or abandon_entry,
