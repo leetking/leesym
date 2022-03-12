@@ -41,7 +41,7 @@ def leetaint(inputfile, outdir, cmds):
     trace_log = os.path.join(outdir, 'trace.log')
     if isinstance(cmds, str):
         target_cmd = cmds.replace('@@', inputfile)
-        target_arch = check_binary(cmds)
+        target_arch = check_binary(cmds.split()[0])
     else:
         target_cmd = ' '.join(cmds).replace('@@', inputfile)
         target_arch = check_binary(cmds[0])

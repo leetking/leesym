@@ -19,7 +19,7 @@ from leetaint import leetaint
 be_quiet = False
 enable_debug = True
 OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
-LOOPINS_MAX = 100
+LOOPINS_MAX = 8              # 目前调小这个以便处理循环中的校验和算法 TODO 后续加入校验判断识别，以跳过运算
 CKSUM_MIN_BYTES = 64         # 一个操作数依赖多个字节认为是校验和
 
 NONE_OFFSET = -1
@@ -354,8 +354,8 @@ class ArithmeticIns:
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
             raise ValueError("Unspport instruction {}".format(self.asm))
-        self._expression = z3.simplify(exp)
-        #self._expression = exp
+        #self._expression = z3.simplify(exp)
+        self._expression = exp
         return exp
 
 
@@ -615,6 +615,7 @@ def build_datagraph(instructions, offset2idxes):
             sameoffidxes = (offset2idxes[off] for off in offset if off != NONE_OFFSET)
             previdx = previous_instruction(datagraph, instructions, i, offset, value, sameoffidxes)
             datagraph[i].append(previdx)
+            # 构建深度图
             if previdx != NONE_ORDER:
                 previns = instructions[previdx]
                 if previns.depth + 1 > ins.depth:
@@ -737,6 +738,7 @@ def is_offset_empty(offsets):
 def concolic_execute(instructions, seed):
     offset2idxes = groupby_offset(instructions)
     addr2idxes = groupby_addr(instructions)
+    info("buiding datagraph ...")
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
     # 优化循环指令
@@ -767,7 +769,6 @@ def concolic_execute(instructions, seed):
                     symval = z3.BitVecVal(value, 8*ins.size)
             else:
                 symval = z3.BitVecVal(value, 8*ins.size)
-            #symval = z3.simplify(symval)
             symvals[k] = symval
 
         if is_compare(ins):
