@@ -777,6 +777,7 @@ def concolic_execute(instructions, seed):
             path_contraintion[i] = pc + [exp] if not ins.optimized else pc
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
             if not (ins.condition == COND_EQ and ins.execute() == True) and not ins.optimized:
+                info("Now begin checking compare sat, with exps:", len(pc)+1)
                 solver = z3.Solver()
                 solver.add(z3.Not(exp), *pc)
                 rst = solver.check()
@@ -797,6 +798,7 @@ def concolic_execute(instructions, seed):
             if is_division(ins) and not ins.optimized:
                 prevpcidx = cmpgraph[i]
                 pc = path_contraintion[prevpcidx] if previdx != NONE_ORDER else []
+                info("Now begin checking div sat, with exps:", len(pc)+1)
                 solver = z3.Solver()
                 solver.add(0 == symvals[1], *pc)
                 rst = solver.check()

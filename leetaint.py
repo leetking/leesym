@@ -21,20 +21,11 @@ else:
     LEETAINT_ROOT = os.environ['LEETAINT_ROOT']
 
 
-def exe_cat(cmd):
-    fd = subprocess.Popen(cmd, shell=True,
-          stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE)
-    return fd.stdout, fd.stderr
-
-
 def check_binary(target_bin):
-    stdout, stderr = exe_cat('objdump -a ' + target_bin)
-
-    arch = stdout.read()
-    if arch.find(b'elf32') >= 0:
+    arch = subprocess.check_output(['objdump', '-a', target_bin])
+    if b'elf32' in arch:
         return 32
-    elif arch.find(b'elf64-x86-64') >= 0:
+    elif b'elf64-x86-64' in arch:
         return 64
     else:
         return -1
