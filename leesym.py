@@ -7,6 +7,7 @@ import time
 import itertools
 import operator
 import argparse
+import struct
 from random import randint
 from collections import OrderedDict
 from bisect import bisect_left
@@ -19,6 +20,7 @@ be_quiet = False
 enable_debug = True
 OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
 LOOPINS_MAX = 100
+CKSUM_MIN_BYTES = 64         # 一个操作数依赖多个字节认为是校验和
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
@@ -30,7 +32,7 @@ parser.add_argument('-s', '--server',
         default=False,
         help="server mode with stdin and stdout")
 parser.add_argument('-i', dest='seed_file', help='A seed file')
-parser.add_argument('-q', dest='quiet', action='store_true', default=False, help='restrain message output')
+parser.add_argument('-q', dest='quiet', action='store_true', default=False, help='suppress message output')
 parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
 parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
 parser.add_argument('-o', dest='output_dir', help='An output directory')
@@ -57,6 +59,18 @@ def int_fromhex(s: str) -> int:
     0a000000 => 10
     """
     return int.from_bytes(bytes.fromhex(s), "little")
+
+
+# 整数按照二进制模式解释 (reinterpret) 为 IEE754 double
+def int_as_float(uv: int, size=64):
+    # 统一和 Intel 内部小端序一致
+    uv = uv & ((1<<size)-1)
+    return struct.unpack('<d', uv.to_bytes(8, 'little'))[0]
+
+
+# 和 int_as_float 相反
+def float_as_int(fp: float):
+    return int.from_bytes(struct.pack('<d', fp), 'little')
 
 
 def signed(uv, size):
@@ -99,11 +113,18 @@ class Instruction:
         ins = asm.split()[0]
         if 'j' != ins[0]:
             return False
-        # js: jump if SF set
-        if ins in ('jz',   'jnz',  'jl',  'jnl',
-                   'jbe',  'jnbe', 'jle', 'jnle',
-                   'ja',   'jna',  'js',  'jns',
-                   'jb',   'jnb'):
+        if ins in ('jl', 'jnge',   # <
+                   'jle', 'jng',   # <=
+                   'jg',  'jnle',  # >
+                   'jge', 'jnl',   # >=
+                   'jz',   'je',   # ==
+                   'jnz',  'jne',  # !=
+                   'jb',   'jnae', # <
+                   'jbe',  'jna',  # <=
+                   'ja',   'jnbe', # >
+                   'jae',  'jnb',  # >=
+                   'js',   'jns',  # SF is set
+                   'jp',   'jnp'): # PF is set
             return True
         warn("Maybe forget condition jump: ", asm)
         return False
@@ -125,7 +146,8 @@ class Instruction:
                    'inc', 'dec',
                    'not', 'and', 'or', 'xor', 'pxor', 'pand', 'por',
                    'shr', 'shl', 'lea',
-                   'ror', 'rol', 'sar', 'sal', 'bswap'):
+                   'ror', 'rol', 'sar', 'sal', 'bswap',
+                   'addsd', 'subsd'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
@@ -211,6 +233,8 @@ class ArithmeticIns:
         #'idiv': None,
         #'div': None,
         #'bswap': None,             # 按字节交换
+        #'addsd': None,             # addsd xmm0, xmm1 低 64 为double浮点数运算. sd: scale double, pd: packed double
+        #'subsd': None,             # 类似 addsd
         'add': operator.add,
         'adc': operator.add,        # 加上 CF 标志位的加法
         'sub': operator.sub,
@@ -236,8 +260,6 @@ class ArithmeticIns:
         self._result = None
         self._expression = None
 
-    # TODO 支持 bswap 指令, png2pnm 中使用了此命令
-    # not_kitty_alpha.png 文件导致崩溃
     def execute(self):
         if self._result != None:
             return self._result
@@ -267,6 +289,14 @@ class ArithmeticIns:
         elif ins == 'bswap':
             assert self.size in (4, 8)
             result = int.from_bytes(values[0].to_bytes(self.size, 'little'), 'big')
+        elif ins == 'addsd':
+            assert 8 == self.size
+            result = float_as_int(int_as_float(values[0]) + int_as_float(values[1]))
+            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
+        elif ins == 'subsd':
+            assert 8 == self.size
+            result = float_as_int(int_as_float(values[0]) - int_as_float(values[1]))
+            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         elif ins in ArithmeticIns.ops:
             result = ArithmeticIns.ops[ins](values[0], values[1])
             if ins in ('pxor', 'pand', 'por'):
@@ -315,6 +345,11 @@ class ArithmeticIns:
         elif ins == 'bswap':
             assert self.size in (4, 8)
             exp =ArithmeticIns.bswap(symvals[0], self.size)
+        elif ins in ('addsd', 'subsd'):
+            assert 8 == self.size
+            # 浮点数运算采用具体值
+            exp = z3.BitVec(self.execute(), 8*self.size)
+            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, symvals[0], symvals[1], exp))
         elif ins in ArithmeticIns.ops:
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
@@ -588,7 +623,28 @@ def build_datagraph(instructions, offset2idxes):
     return datagraph
 
 
-def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=100):
+def detect_multibytes_dependent(instructions, datagraph, ck):
+    pass
+
+
+def is_operand_field(offset):
+    pass
+
+
+def gather_magic_field(instructions):
+    pass
+
+
+def gather_checksum_field(instructions):
+    pass
+
+
+def gather_length_field(instructions):
+    pass
+
+
+# TODO，对循环的最后一次实行符号化，以求边界
+def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=LOOPINS_MAX):
     cnts = [NONE_ORDER for _ in instructions]
     for i, ins in enumerate(instructions):
         assert ins.depth != None and ins.depth_prev != None
@@ -919,8 +975,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-## 记录
-# 由于 Intel CPU 在做有符号运算时存在符号位扩展问题，所以有符号除法不好解决
-# 尝试在建立 datagraph 和初始符号化时分析符号扩展

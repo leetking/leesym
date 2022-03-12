@@ -488,7 +488,7 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_SBB:
     case XED_ICLASS_SUB:
 
-    case XED_ICLASS_ADDSD:
+    case XED_ICLASS_ADDSD:  // SSE2 指令集, 浮点数指令相加, 低 64 位 double 相加
     case XED_ICLASS_SUBSD:
 
     case XED_ICLASS_AND:
@@ -497,7 +497,7 @@ VOID Instruction(INS ins, VOID *v)
 
     case XED_ICLASS_PAND:
     case XED_ICLASS_POR:
-    case XED_ICLASS_PXOR: 
+    case XED_ICLASS_PXOR:
 
         if(INS_MemoryOperandCount(ins) == 0){
             if(!INS_OperandIsImmediate(ins, OP_1)){
