@@ -147,7 +147,9 @@ class Instruction:
                    'not', 'and', 'or', 'xor', 'pxor', 'pand', 'por',
                    'shr', 'shl', 'lea',
                    'ror', 'rol', 'sar', 'sal', 'bswap',
-                   'addsd', 'subsd'):
+                   'addsd', 'subsd',
+                   'pcmpeqb', 'pcmpeqw', 'pcmpeqd', # MXX 相等比较指令, 1b, 2b, 4b
+                   'pcmpgtb', 'pcmpgtw', 'pcmpgtd',):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
@@ -235,6 +237,7 @@ class ArithmeticIns:
         #'bswap': None,             # 按字节交换
         #'addsd': None,             # addsd xmm0, xmm1 低 64 为double浮点数运算. sd: scale double, pd: packed double
         #'subsd': None,             # 类似 addsd
+        #'pcmpeqb': None,           # xmm 指令集，按照字节比较，相等置目标字节为 FF，否则为 0
         'add': operator.add,
         'adc': operator.add,        # 加上 CF 标志位的加法
         'sub': operator.sub,
@@ -297,6 +300,10 @@ class ArithmeticIns:
             assert 8 == self.size
             result = float_as_int(int_as_float(values[0]) - int_as_float(values[1]))
             debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
+        elif ins in ('pcmpeqb', 'pcmpeqw', 'pcmpeqd', 'pcmpgtb', 'pcmpgtw', 'pcmpgtd'):
+            result = 0x0
+            warn("XMM instruction {} isn't support".format(ins))
+            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         elif ins in ArithmeticIns.ops:
             result = ArithmeticIns.ops[ins](values[0], values[1])
             if ins in ('pxor', 'pand', 'por'):
@@ -349,6 +356,10 @@ class ArithmeticIns:
             assert 8 == self.size
             # 浮点数运算采用具体值
             exp = z3.BitVec(self.execute(), 8*self.size)
+            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, symvals[0], symvals[1], exp))
+        elif ins in ('pcmpeqb', 'pcmpeqw', 'pcmpeqd', 'pcmpgtb', 'pcmpgtw', 'pcmpgtd'):
+            exp = z3.BitVec(0, 8*self.size)
+            warn("XMM instruction {} isn't support".format(ins))
             debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, symvals[0], symvals[1], exp))
         elif ins in ArithmeticIns.ops:
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])

@@ -241,6 +241,21 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 
 static FILE* plot_file;               /* Gnuplot output file              */
 
+enum {
+    FIELD_MAGIC = 0x1,
+    FIELD_LENGTH = 0x2,
+    FIELD_CKSUM = 0x03,
+    FIELD_TYPE = 0x04,
+};
+struct field {
+    u8 type;
+    u64 start, end;
+};
+
+struct chunk {
+    u64 id;
+};
+
 struct queue_entry {
 
   u8* fname;                          /* File name for the test case      */
