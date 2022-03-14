@@ -25,6 +25,12 @@ AFL 和 leesym 的 evel 模式交互
    input1: path-to-generated-input
    ...
    input41: path-to-generated-input
+   field: magic 0 4 0xdeadbeef
+   field: checksum 10 12 0xbbcc
+   field: length 8 10
+   field: type 4 6 0x1 0x2 0x42
+   chunk: 0xffaabbccddee 10 42 8 10
+   chunk: 0xaabbccddeeff 42 84 4 6
    ```
 
 4. AFL <- leesym: [发生错误]

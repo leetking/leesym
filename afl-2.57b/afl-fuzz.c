@@ -246,14 +246,20 @@ enum {
     FIELD_LENGTH = 0x2,
     FIELD_CKSUM = 0x03,
     FIELD_TYPE = 0x04,
+    FIELD_WIDTH_MAX = 64,
+    FIELD_NUMBER_MAX = 128,
+    CHUNK_NUMBER_MAX = 128,
 };
-struct field {
+struct field_t {
     u8 type;
     u64 start, end;
+    u8 value[FIELD_WIDTH_MAX];
 };
 
-struct chunk {
+struct chunk_t {
     u64 id;
+    u64 start, end;
+    struct field_t *field;
 };
 
 struct queue_entry {
@@ -284,6 +290,10 @@ struct queue_entry {
                      *next_100;       /* 100 elements ahead               */
 
   u8 was_concolized;
+  struct field_t fields[FIELD_NUMBER_MAX];
+  u64 field_cnt;
+  struct chunk_t chunks[CHUNK_NUMBER_MAX];
+  u64 chunk_cnt;
 };
 
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */

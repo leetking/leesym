@@ -3,14 +3,16 @@
 import os
 import re
 import sys
-import time
-import itertools
+import heapq
+import struct
 import operator
 import argparse
-import struct
+import itertools
 from random import randint
 from collections import OrderedDict
 from bisect import bisect_left
+
+from viztracer import VizTracer
 
 import z3
 
@@ -31,11 +33,16 @@ parser.add_argument('-s', '--server',
         action='store_true',
         default=False,
         help="server mode with stdin and stdout")
-parser.add_argument('-i', dest='seed_file', help='A seed file')
-parser.add_argument('-q', dest='quiet', action='store_true', default=False, help='suppress message output')
-parser.add_argument('-p', dest='dot_file', help='plot trace file to this file')
-parser.add_argument('-t', dest='trace_file', help='A record file from leetaint')
-parser.add_argument('-o', dest='output_dir', help='An output directory')
+parser.add_argument('-i', '--input', dest='seed_file', help='A seed file')
+parser.add_argument('-q', '--quiet', dest='quiet', action='store_true', default=False, help='suppress message output')
+parser.add_argument('--detect-struct',
+        dest='detect_struct',
+        action='store_true',
+        default=False,
+        help='detect input\'s structure')
+parser.add_argument('-p', '--plot', dest='dot_file', help='plot trace file to this file')
+parser.add_argument('-t', '--trace', dest='trace_file', help='A record file from leetaint')
+parser.add_argument('-o', '--outdir', dest='output_dir', help='An output directory')
 parser.add_argument('cmd', nargs='*', help='cmd')
 
 
@@ -148,7 +155,7 @@ class Instruction:
                    'shr', 'shl', 'lea',
                    'ror', 'rol', 'sar', 'sal', 'bswap',
                    'addsd', 'subsd',
-                   'pcmpeqb', 'pcmpeqw', 'pcmpeqd', # MXX 相等比较指令, 1b, 2b, 4b
+                   'pcmpeqb', 'pcmpeqw', 'pcmpeqd', # XMM 相等比较指令, 1b, 2b, 4b
                    'pcmpgtb', 'pcmpgtw', 'pcmpgtd',):
             return ArithmeticIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
@@ -635,8 +642,22 @@ def build_datagraph(instructions, offset2idxes):
     return datagraph
 
 
-def detect_multibytes_dependent(instructions, datagraph, ck):
+def is_operand_i2s():
     pass
+
+
+def detect_multibytes_dependent(instructions, datagraph):
+    for i, ins in enumerate(instructions):
+        ins.multibytes = [set() for _ in ins.offsets]
+        for k, (offset, value) in enumerate(zip(ins.offsets, ins.values)):
+            previdx = datagraph[i][k]
+            operand_bytes = set(x for x in offset if x != NONE_OFFSET)
+            if previdx == NONE_ORDER:
+                ins.multibytes[k] = operand_bytes
+            else:
+                ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
+        if is_compare(ins):
+            pass
 
 
 def is_operand_field(offset):
@@ -956,6 +977,7 @@ def main():
         instructions = parse_trace_file(args.cmd[0])
         offset2idxes = groupby_offset(instructions)
         datagraph = build_datagraph(instructions, offset2idxes)
+        detect_multibytes_dependent(instructions, datagraph)
         plot_datagraph(instructions, datagraph, args.dot_file)
         return 0
 
@@ -965,9 +987,12 @@ def main():
 
     # trace file
     if args.trace_file:
-        seed = readfile(args.seed_file)
-        instructions = parse_trace_file(args.trace_file)
-        result = concolic_execute(instructions, seed)
+        if args.detect_struct:
+            pass
+        else:
+            seed = readfile(args.seed_file)
+            instructions = parse_trace_file(args.trace_file)
+            result = concolic_execute(instructions, seed)
         return 0
 
     # taint + concolic exe
@@ -977,10 +1002,11 @@ def main():
             return 102
         trace_file = os.path.join(args.output_dir, 'trace.txt')
         seed = readfile(args.seed_file)
-        testcasepath = os.path.join(args.output_dir, 'testcases')
-        instructions = parse_trace_file(trace_file)
-        result = concolic_execute(instructions, seed)
-        saved_files = save_all_testcases(result, seed, testcasepath)
+        with VizTracer():
+            testcasepath = os.path.join(args.output_dir, 'testcases')
+            instructions = parse_trace_file(trace_file)
+            result = concolic_execute(instructions, seed)
+            saved_files = save_all_testcases(result, seed, testcasepath)
         return 0
 
     # invalid useage
