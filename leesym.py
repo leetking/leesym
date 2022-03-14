@@ -19,7 +19,8 @@ from leetaint import leetaint
 be_quiet = False
 enable_debug = True
 OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
-LOOPINS_MAX = 8              # 目前调小这个以便处理循环中的校验和算法 TODO 后续加入校验判断识别，以跳过运算
+LOOPINS_MAX = 16             # 目前调小这个以便处理循环中的校验和算法 TODO 后续加入校验判断识别，以跳过运算
+                             # 从 8 调整到 16
 CKSUM_MIN_BYTES = 64         # 一个操作数依赖多个字节认为是校验和
 
 NONE_OFFSET = -1
@@ -141,7 +142,7 @@ class Instruction:
     @staticmethod
     def _classify(addr, asm, size=None, result=None, offsets=None, values=None):
         ins = asm.split()[0]
-        if ins in ('cmp', 'test'):
+        if ins in ('cmp', 'test', 'cmpxchg'):
             return CompareIns(addr, asm, size, offsets, values)
         if ins in ('jmp'):
             return JumpIns(addr, asm, size, result, offsets, values)
@@ -245,6 +246,7 @@ class ArithmeticIns:
         #'addsd': None,             # addsd xmm0, xmm1 低 64 为double浮点数运算. sd: scale double, pd: packed double
         #'subsd': None,             # 类似 addsd
         #'pcmpeqb': None,           # xmm 指令集，按照字节比较，相等置目标字节为 FF，否则为 0
+        #'cmpxchg': None,
         'add': operator.add,
         'adc': operator.add,        # 加上 CF 标志位的加法
         'sub': operator.sub,
@@ -497,7 +499,7 @@ class CompareIns:
                     return COND_GT
                 if v0 == v1:
                     return COND_EQ
-        elif ins in ('test'):
+        elif ins in ('test', 'cmpxchg'):
             return COND_EQ if v0 == v1 else COND_NE
         raise ValueError("Unknow compare instruction {}".format(ins))
 
