@@ -12,8 +12,6 @@ from random import randint
 from collections import OrderedDict
 from bisect import bisect_left
 
-from viztracer import VizTracer
-
 import z3
 
 from leetaint import leetaint
@@ -745,7 +743,7 @@ def enable_sign_extend(val, offset, idx):
     return all(offset[i] == NONE_OFFSET and get_byte(val, i) == ext for i in range(idx+1, len(offset)))
 
 
-def symbolize_value(value, offset):
+def symbolize_value(value, offset, sign_extend=False):
     assert offset
     exp = None
     len_ = len(offset)
@@ -754,7 +752,7 @@ def symbolize_value(value, offset):
             byte = z3.BitVecVal(get_byte(value, i), 8)
         else:
             byte = z3.BitVec("b{}".format(off), 8)
-            if i+1 < len_ and enable_sign_extend(value, offset, i):
+            if sign_extend and i+1 < len_ and enable_sign_extend(value, offset, i):
                 byte = z3.SignExt(8*(len_ - i - 1), byte)
                 exp = z3.Concat(byte, exp) if exp != None else byte
                 return exp
@@ -1002,11 +1000,10 @@ def main():
             return 102
         trace_file = os.path.join(args.output_dir, 'trace.txt')
         seed = readfile(args.seed_file)
-        with VizTracer():
-            testcasepath = os.path.join(args.output_dir, 'testcases')
-            instructions = parse_trace_file(trace_file)
-            result = concolic_execute(instructions, seed)
-            saved_files = save_all_testcases(result, seed, testcasepath)
+        testcasepath = os.path.join(args.output_dir, 'testcases')
+        instructions = parse_trace_file(trace_file)
+        result = concolic_execute(instructions, seed)
+        saved_files = save_all_testcases(result, seed, testcasepath)
         return 0
 
     # invalid useage
