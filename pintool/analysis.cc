@@ -354,6 +354,8 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_PCMPGTW:
     case XED_ICLASS_PCMPGTD:
     case XED_ICLASS_PCMPGTQ:
+        // FIXME 对 pcmpxx 指令的而支持，目前先直接跳过
+        break;
         if(INS_MemoryOperandCount(ins) == 0){
             // pcmpeq reg, reg
             if(!INS_OperandIsImmediate(ins, OP_1)){
@@ -387,7 +389,7 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_OperandCount(ins),
                     IARG_UINT32, INS_RegR(ins, OP_0),
                     IARG_MEMORYREAD_EA,
-                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
+                    IARG_UINT32, INS_MemoryReadSize(ins),
                     IARG_END);
             } 
             else{

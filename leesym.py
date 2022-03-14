@@ -156,6 +156,8 @@ class Instruction:
                    'pcmpeqb', 'pcmpeqw', 'pcmpeqd', # XMM 相等比较指令, 1b, 2b, 4b
                    'pcmpgtb', 'pcmpgtw', 'pcmpgtd',):
             return ArithmeticIns(addr, asm, size, offsets, values)
+        if ins == 'rep' and asm.split()[1] in ('cmpsb', 'cmpsw', 'cmpsd'):
+            return CompareIns(addr, asm, size, offsets, values)
         raise ValueError("Unspport instruction {}".format(asm))
 
     @staticmethod
@@ -460,7 +462,7 @@ class CompareIns:
     }
     def __init__(self, addr, asm, size, offsets, values):
         self.addr = addr
-        self.asm = asm
+        self.asm = asm if not asm.startswith('rep') else asm[4:]    # remove 'rep ' prefix
         self.size = size
         self.offsets = offsets
         self.values = values
@@ -485,7 +487,7 @@ class CompareIns:
         values = self.values
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
-        if ins in ('cmp'):
+        if ins in ('cmp', 'cmpsb', 'cmpsw', 'cmpsd'):
             if randint(0, 99) >= 50:
                 return COND_EQ if v0 == v1 else COND_NE
             else:
