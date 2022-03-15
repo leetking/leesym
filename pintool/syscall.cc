@@ -35,6 +35,7 @@ struct {
     int fd = INVALID_FD;
     ADDRINT addr = 0;
     UINT64  size = 0;
+    UINT64  offset = 0;
 } read_info;
 
 struct {
@@ -133,6 +134,16 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         read_info.size = arg2;
         break;
 
+    case __NR_pread64:
+        logfile << "[pread64]\t\tfd: " << arg0
+            << " addr: " << hex << arg1
+            << " size: " << dec << arg2
+            << " offset: " << arg3 << endl;
+        read_info.fd = arg0;
+        read_info.addr = arg1;
+        read_info.size = arg2;
+        read_info.offset = arg3;
+
     case __NR_lseek:
         logfile << hex << "[lseek]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
         lseek_info.fd = arg0;
@@ -212,13 +223,37 @@ VOID SysAfter(ADDRINT ret)
             break;
         // 打开目标程序读取的文件
         if (string_equal(open_info.fname, targetFileName.c_str())) {
-            if (open_info.flags == O_RDONLY || open_info.flags == O_RDWR) {
+            uint16_t accmode = open_info.flags & O_ACCMODE;
+            if (accmode == O_RDONLY || accmode == O_RDWR) {
                 logfile << "[TAINT]\t\topen input file at " << ret << endl;
                 taint.target_fd = ret;
             }
         }
         open_info.fname = nullptr;
         open_info.flags = 0x0;
+        break;
+
+    case __NR_pread64:
+        if (syscall_failed(ret))
+            break;
+        printf("read_info.fd: %d, taint.target_fd: %d\n", read_info.fd, taint.target_fd);
+        if (read_info.fd != taint.target_fd)
+            break;
+        if (!taint.started) {
+            logfile << "BEGIN TAINT via read fd " << taint.target_fd << endl;
+            taint.started = true;
+            isTaintStart = true;
+        }
+        size = ret;
+        for (UINT64 i = 0; i < size; ++i)
+            addTaintByte(read_info.addr + i, read_info.offset++);
+        logfile << "[TAINT]\t\tread addr: " << hex << read_info.addr
+            << " size: " << dec << ret
+            << " offset: " << read_info.offset - size << endl;
+        read_info.fd = INVALID_FD;
+        read_info.addr = 0x0;
+        read_info.size = 0;
+        read_info.offset = 0;
         break;
 
     case __NR_read:

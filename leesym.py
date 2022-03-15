@@ -778,7 +778,7 @@ def concolic_execute(instructions, seed):
     # 优化循环指令
     optimize_instruction(instructions, datagraph, addr2idxes)
     z3.set_param(timeout=30*1000)        # 30s (unit: ms) for a solver
-    z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果
+    #z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果，因为不支持
     ret = set()
     path_contraintion = {}
     for i, ins in enumerate(instructions):
