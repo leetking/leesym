@@ -16,7 +16,7 @@ using namespace std;
 // 记录内存被污染的情况
 vector<Page*> g_pages;
 // 记录寄存器被污染的情况
-vector<Register*> g_registers;
+Register g_registers[REGISTER_MAX];
 
 // operations for memory bytes
 Byte* getTaintByte(UINT64 addr)
@@ -303,40 +303,21 @@ UINT32 get_reg_shift(REG reg)
     }
 }
 
-Register::Register(REG reg)
-    : Register(reg, nullptr, REGISTER_WIDTH)
+Register::Register()
+    : tainted(0x0)
 {
-}
-
-Register::Register(REG r, UINT64 const* offset, UINT32 size)
-    : reg(get_reg_inner_name(r)),
-      tainted(0x0)
-{
-    BUG_ON(size > REG_Size(reg));
     for (UINT32 i = 0; i < REGISTER_WIDTH; ++i)
-        this->offset[i] = INVALID_OFFSET;
-    if (!offset)
-        return;
-    for (UINT32 i = 0; i < size; ++i) {
-        if (offset[i] != INVALID_OFFSET) {
-            this->offset[i] = offset[i];
-            set_bitmap(tainted, i);
-        }
-    }
+        offset[i] = INVALID_OFFSET;
 }
 
 // operations for registers
 Register* getTaintRegister(REG reg)
 {
     BUG_ON(reg == REGISTER_INVALID);
+    BUG_ON(reg > REGISTER_MAX);
     // inner reg
     REG ireg = get_reg_inner_name(reg);
-    for (auto registor : g_registers) {
-        if (registor->reg == ireg)
-            return registor;
-    }
-
-    return nullptr;
+    return g_registers + ireg;
 }
 
 bool isRegisterOffsetTainted(REG reg, UINT32 offset)
@@ -346,16 +327,14 @@ bool isRegisterOffsetTainted(REG reg, UINT32 offset)
     BUG_ON(offset >= REG_Size(reg));
 
     offset += get_reg_shift(reg);
-    Register const* registor = getTaintRegister(reg);
-    return registor && get_bitmap(registor->tainted, offset);
+    Register const* r = getTaintRegister(reg);
+    return get_bitmap(r->tainted, offset);
 }
 
 UINT64 const* getRegisterOffset(REG reg)
 {
-    Register* r = getTaintRegister(reg);
+    Register const* r = getTaintRegister(reg);
     UINT32 shift = get_reg_shift(reg);
-    if (!r)
-        return nullptr;
     return r->offset + shift;
 }
 
@@ -368,7 +347,7 @@ bool isRegisterTainted(REG reg)
     BUG_ON(size > 64 && "Unsupport register size > 64");
     UINT64 mask = (size == 64)? (~0x0): ((0x1<<size)-1);
     mask <<= get_reg_shift(reg);
-    return r && (r->tainted & mask);
+    return r->tainted & mask;
 }
 
 void taintRegister(REG reg, UINT64 const* offset, UINT32 size)
@@ -378,30 +357,23 @@ void taintRegister(REG reg, UINT64 const* offset, UINT32 size)
     BUG_ON(size > REG_Size(reg));
 
     Register* r = getTaintRegister(reg);
-    if (!r) {
-        r = new Register(reg, offset, size);
-        g_registers.push_back(r);
-        return;
-    }
-
-    // found r, update it
     UINT32 shift = get_reg_shift(reg);
-    for (UINT32 i = shift; i < size+shift; ++i) {
-        if (offset[i-shift] != INVALID_OFFSET) {
-            set_bitmap(r->tainted, i);
-            r->offset[i] = offset[i-shift];
+    for (UINT32 i = 0; i < size; ++i) {
+        if (offset[i] != INVALID_OFFSET) {
+            set_bitmap(r->tainted, shift+i);
+            r->offset[shift+i] = offset[i];
         } else {
-            clr_bitmap(r->tainted, i);
-            r->offset[i] = INVALID_OFFSET;
+            clr_bitmap(r->tainted, shift+i);
+            r->offset[shift+i] = INVALID_OFFSET;
         }
     }
 }
 
 void clearRegister(REG reg, UINT32 size)
 {
-    Register* r = getTaintRegister(reg);
-    if (!r && !isRegisterTainted(reg))
+    if (!isRegisterTainted(reg))
         return;
+    Register* r = getTaintRegister(reg);
     BUG_ON(size > REG_Size(reg));
     UINT32 shift = get_reg_shift(reg);
     UINT64 mask = (size==64)? (~0): ((1<<size)-1);

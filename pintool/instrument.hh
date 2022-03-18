@@ -11,7 +11,7 @@ enum {
     REG_SIZE_1 = 1,
     REG_SIZE_2 = 2,
     REG_SIZE_4 = 4,
-    REG_SIZE_8 = 8,
+    REG_SIZE_8 = 8,     // 8bytes, 64 bits
     REG_SIZE_16 = 16,
     REG_SIZE_32 = 32,
     REG_SIZE_64 = 64,
@@ -23,9 +23,10 @@ enum {
 };
 // max 512 bits
 enum {
-    REGISTER_WIDTH = 64,
+    REGISTER_WIDTH = 64,    // 64 bytes
 };
 #define REGISTER_INVALID REG_LAST
+#define REGISTER_MAX     (REG_MACHINE_LAST+1)
 
 #define get_bitmap(map, offset) (map & (0x1UL<<(offset)))
 #define set_bitmap(map, offset) (map |= (0x1UL<<(offset)))
@@ -35,14 +36,11 @@ enum {
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大
 struct Register {
 public:
-    Register(REG reg);
-    Register(REG reg, UINT64 const* offs, UINT32 size);
+    Register();
+    Register(UINT64 const* offs, UINT32 size);
 
-    REG reg;
     UINT64 tainted;
-    UINT64 direct_bits;     // 是否是直接来自输入
     UINT64 offset[REGISTER_WIDTH];
-
 };
 
 struct MemBlock {
