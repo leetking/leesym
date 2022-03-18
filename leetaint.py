@@ -65,6 +65,8 @@ def leetaint(inputfile, outdir, cmds):
         redirect_stdin = f"< {inputfile}"
 
     cmd = f"env PIN_ROOT={PIN_ROOT} {pin_path} -t {pintool} -i {inputfile} -o {trace_out} -l {trace_log} -- {target_cmd} {redirect_stdin} > /dev/null"
+    with open(os.path.join(outdir, 'leetaint.log'), 'w') as fp:
+        print('[CMD]:', cmd, file=fp)
     print('[CMD]:', cmd, file=sys.stderr)
     start_time = time.time()
     os.system(cmd)

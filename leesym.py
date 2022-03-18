@@ -240,6 +240,9 @@ class ArithmeticIns:
         #'ror': None,               # 循环右移
         #'rol': None,
         #'shr': operator.rshift,    # 逻辑右移
+        #'sar': None
+        #'shl': operator.lshift,
+        #'sal': operator.lshift,     # 算术左移
         #'idiv': None,
         #'div': None,
         #'bswap': None,             # 按字节交换
@@ -259,8 +262,6 @@ class ArithmeticIns:
         'por': operator.or_,
         'xor': operator.xor,
         'pxor': operator.xor,
-        'shl': operator.lshift,
-        'sal': operator.lshift,     # 算术左移
     }
 
     def __init__(self, addr, asm, size, offsets, values):
@@ -292,6 +293,8 @@ class ArithmeticIns:
             result = ArithmeticIns.rol(values[0], values[1], 8*self.size)
         elif ins == 'sar':  # 算术右移，符号扩展
             result = ArithmeticIns.sar(values[0], values[1], 8*self.size)
+        elif ins in ('sal', 'shl'):
+            result = values[0] << values[1]
         elif ins == 'shr':
             result = values[0] >> values[1]
         elif ins == 'idiv':
@@ -331,8 +334,9 @@ class ArithmeticIns:
     # 默认的 <, >, /, <<, >> 都是有符号操作，提供了 Uxx/Lxx 的操作默认都是有符号
     # 其余是无符号
     def symbolize(self, symvals):
-        for sym in symvals:
-            assert self.size*8 == sym.size()
+        # remove checking
+        #for sym in symvals:
+        #    assert self.size*8 == sym.size()
         exp = None
         ins = self.asm.split()[0]
         values = self.values
@@ -351,6 +355,8 @@ class ArithmeticIns:
             exp = ArithmeticIns.symrol(symvals[0], values[1], 8*self.size)
         elif ins == 'sar':      # 逻辑右移位，z3 默认为符号右移和 Python 一致
             exp = symvals[0] >> values[1]
+        elif ins in ('sal', 'shl'):
+            exp = symvals[0] << values[1]
         elif ins == 'shr':
             exp = z3.LShR(symvals[0], values[1])
         elif ins == 'idiv':

@@ -776,7 +776,7 @@ static void mark_as_leesym_done(struct queue_entry* q)
 
   ck_free(fn);
 
-  q->was_concolized = 1;
+  //q->was_concolized = 1;
 }
 
 

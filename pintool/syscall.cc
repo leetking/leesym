@@ -282,7 +282,7 @@ VOID SysAfter(ADDRINT ret)
             break;
         if (taint.target_fd == close_info.fd) {
             logfile << "[TAINT]\tClose input file fd " << taint.target_fd << endl;
-            taint.target_fd = STDIN_FILENO;
+            taint.target_fd = INVALID_FD;
         }
         close_info.fd = INVALID_FD;
         break;
