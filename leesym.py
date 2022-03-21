@@ -616,6 +616,11 @@ def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidx
         while i > end and idxes[i-1] > previdx:
             i -= 1
             ins = instructions[idxes[i]]
+            if is_arimetic(ins):
+                result = ins.execute()
+                if value == result:
+                    previdx = idxes[i]
+                    break
             # check operands
             opidx = find_same_operand(ins, offset, value)
             if opidx != NONE_ORDER:
@@ -623,12 +628,6 @@ def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidx
                 if new_previdx > previdx:
                     previdx = new_previdx
                     break
-            if not is_arimetic(ins):
-                continue
-            result = ins.execute()
-            if value == result:
-                previdx = idxes[i]
-                break
     return previdx
 
 
