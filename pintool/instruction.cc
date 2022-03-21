@@ -108,6 +108,8 @@ void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG src, REG ds
 
     if (isRegisterTainted(src))
         taintRegister(dst, getRegisterOffset(src), size);
+    else
+        clearRegister(dst, size);
 }
 
 VOID taintRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, UINT32 size)
