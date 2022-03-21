@@ -63,6 +63,8 @@ int main(int argc, char *argv[])
     logfile.open(logFileName.c_str());
     trace.open(outputFileName.c_str());
 
+    initialize_syscall();
+
     // Intel 汇编语法
     PIN_SetSyntaxIntel();
     // Syscall入口和出口：建立输入和内存/寄存器的关联

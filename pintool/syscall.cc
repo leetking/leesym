@@ -1,4 +1,5 @@
 #include <list>
+#include <unordered_map>
 
 #ifndef TARGET_WINDOWS
 # include <sys/syscall.h>   // import syscall number
@@ -17,13 +18,14 @@ namespace {
 enum {
     SYSCALL_NONE = (unsigned)-1,
     INVALID_FD = -1,
+    TARGET_FD_MAX = 32,
 };
 unsigned syscall_number = SYSCALL_NONE;
 
+using namespace std::tr1;   // for unordered_set
 struct {
     bool started = false;
-    int target_fd = STDIN_FILENO;   // 默认从标准输入读
-    UINT64 offset = 0;
+    unordered_map<int, off_t> target_fds;
 } taint;
 
 struct {
@@ -63,6 +65,11 @@ struct {
     ADDRINT start = 0;
     size_t length = 0;
 } munmap_info;
+
+struct {
+    int src = INVALID_FD;
+    int dst = INVALID_FD;
+} dup_info;
 } // end namespace
 
 static inline
@@ -70,6 +77,41 @@ bool string_equal(char const* str1, char const* str2)
 {
     return strcmp(str1, str2) == 0;
 }
+
+static inline
+bool is_target_fd(int fd)
+{
+    return taint.target_fds.count(fd);
+}
+
+static inline
+void remove_target_fd(int fd)
+{
+    taint.target_fds.erase(fd);
+}
+
+static inline
+void add_target_fd(int fd, off_t offset)
+{
+    taint.target_fds.insert(make_pair(fd, offset));
+}
+
+static inline
+off_t get_file_offset(int fd)
+{
+    if (!is_target_fd(fd))
+        return 0;
+    return taint.target_fds[fd];
+}
+
+static inline
+void set_file_offset(int fd, off_t offset)
+{
+    if (!is_target_fd(fd))
+        return;
+    taint.target_fds[fd] = offset;
+}
+
 
 
 /**
@@ -143,6 +185,7 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         read_info.addr = arg1;
         read_info.size = arg2;
         read_info.offset = arg3;
+        break;
 
     case __NR_lseek:
         logfile << hex << "[lseek]\t\tfd: " << arg0 << " offset: " << arg1 << " whence: " << arg2 << endl;
@@ -164,12 +207,16 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         mmap_info.offset = arg5;
         break;
 
-    // TODO 完成 dup 的模拟
     case __NR_dup:
+        dup_info.src = arg0;
         break;
     case __NR_dup2:
+        dup_info.src = arg0;
+        dup_info.dst = arg1;
         break;
     case __NR_dup3:
+        dup_info.src = arg0;
+        dup_info.dst = arg1;
         break;
 
 #if defined(TARGET_LINUX) && defined(TARGET_IA32)
@@ -186,6 +233,7 @@ VOID SysAfter(ADDRINT ret)
 {
     UINT64 size;
     ADDRINT addr;
+    off_t offset;
 
     switch (syscall_number) {
     case __NR_brk:
@@ -226,7 +274,7 @@ VOID SysAfter(ADDRINT ret)
             uint16_t accmode = open_info.flags & O_ACCMODE;
             if (accmode == O_RDONLY || accmode == O_RDWR) {
                 logfile << "[TAINT]\t\topen input file at " << ret << endl;
-                taint.target_fd = ret;
+                add_target_fd(ret, 0);
             }
         }
         open_info.fname = nullptr;
@@ -236,11 +284,10 @@ VOID SysAfter(ADDRINT ret)
     case __NR_pread64:
         if (syscall_failed(ret))
             break;
-        printf("read_info.fd: %d, taint.target_fd: %d\n", read_info.fd, taint.target_fd);
-        if (read_info.fd != taint.target_fd)
+        if (!is_target_fd(read_info.fd))
             break;
         if (!taint.started) {
-            logfile << "BEGIN TAINT via read fd " << taint.target_fd << endl;
+            logfile << "BEGIN TAINT via read fd " << read_info.fd << endl;
             taint.started = true;
             isTaintStart = true;
         }
@@ -259,19 +306,21 @@ VOID SysAfter(ADDRINT ret)
     case __NR_read:
         if (syscall_failed(ret))
             break;
-        if (read_info.fd != taint.target_fd)
+        if (!is_target_fd(read_info.fd))
             break;
         if (!taint.started) {
-            logfile << "BEGIN TAINT via read fd " << taint.target_fd << endl;
+            logfile << "BEGIN TAINT via read fd " << read_info.fd << endl;
             taint.started = true;
             isTaintStart = true;
         }
+        offset = get_file_offset(read_info.fd);
         size = ret;
         for (UINT64 i = 0; i < size; ++i)
-            addTaintByte(read_info.addr + i, taint.offset++);
+            addTaintByte(read_info.addr + i, offset++);
         logfile << "[TAINT]\t\tread addr: " << hex << read_info.addr
             << " size: " << dec << ret
-            << " offset: " << taint.offset - size << endl;
+            << " offset: " << offset - size << endl;
+        set_file_offset(read_info.fd, offset);
         read_info.fd = INVALID_FD;
         read_info.addr = 0x0;
         read_info.size = 0;
@@ -280,9 +329,9 @@ VOID SysAfter(ADDRINT ret)
     case __NR_close:
         if (syscall_failed(ret))
             break;
-        if (taint.target_fd == close_info.fd) {
-            logfile << "[TAINT]\tClose input file fd " << taint.target_fd << endl;
-            taint.target_fd = INVALID_FD;
+        if (is_target_fd(close_info.fd)) {
+            remove_target_fd(close_info.fd);
+            logfile << "[TAINT]\tClose input file fd " << close_info.fd << endl;
         }
         close_info.fd = INVALID_FD;
         break;
@@ -290,29 +339,29 @@ VOID SysAfter(ADDRINT ret)
     case __NR_lseek:
         if (syscall_failed(ret))
             break;
-        if (taint.target_fd != lseek_info.fd)
+        if (!is_target_fd(lseek_info.fd))
             break;
         logfile << "[TAINT]\t\tSeek curr to " << ret << endl;
-        taint.offset = ret;
+        set_file_offset(lseek_info.fd, ret);
         break;
 
     case 140:
         if (syscall_failed(ret))
             break;
-        if (taint.started != lseek_info.fd)
+        if (!is_target_fd(lseek_info.fd))
             break;
         logfile << "[TAINT]\t\tSeek curr to " << ret << endl;
-        taint.offset = *lseek_info.result;
+        set_file_offset(lseek_info.fd, *lseek_info.result);
         break;
 
     case __NR_mmap:
         if (syscall_failed(ret))
             break;
         logfile << "[mmap]\t\treturn addr: " << hex << ret << endl;
-        if (mmap_info.fd != taint.target_fd)
+        if (!is_target_fd(mmap_info.fd))
             break;
         if (!taint.started) {
-            logfile << "BEGIN TAINT via mmap fd " << taint.target_fd << endl;
+            logfile << "BEGIN TAINT via mmap fd " << mmap_info.fd << endl;
             taint.started = true;
             isTaintStart = true;
         }
@@ -323,6 +372,33 @@ VOID SysAfter(ADDRINT ret)
         logfile << "[TAINT]\t\tmmap addr: " << hex << addr
             << " size: " << dec << mmap_info.len
             << " offset: " << mmap_info.offset << endl;
+        break;
+
+    case __NR_dup:
+        if (syscall_failed(ret))
+            break;
+        if (!is_target_fd(dup_info.src))
+            break;
+        logfile << "[dup]\t\tdup taint fd: " << dup_info.src << " -> " << ret << endl;
+        add_target_fd(ret, 0);
+        dup_info.src = INVALID_FD;
+        break;
+
+    case __NR_dup2:
+    case __NR_dup3:
+        if (syscall_failed(ret))
+            break;
+        BUG_ON(dup_info.src == dup_info.dst);
+        if (is_target_fd(dup_info.dst)) {
+            logfile << "[TAINT]\t\tDup2/3 close input file fd " << dup_info.dst << endl;
+            remove_target_fd(dup_info.dst);
+        }
+        if (is_target_fd(dup_info.src)) {
+            logfile << "[dup2/3]\tdup2/3 taint fd: " << dup_info.src << " -> " << ret << endl;
+            add_target_fd(ret, 0);
+        }
+        dup_info.src = INVALID_FD;
+        dup_info.dst = INVALID_FD;
         break;
 
     case SYSCALL_NONE:
@@ -347,4 +423,9 @@ VOID SyscallEntry(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOI
 VOID SyscallExit(THREADID threadIndex, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v)
 {
     SysAfter(PIN_GetSyscallReturn(ctxt, std));
+}
+
+void initialize_syscall()
+{
+    add_target_fd(STDIN_FILENO, 0);
 }
