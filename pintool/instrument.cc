@@ -315,9 +315,10 @@ Register* getTaintRegister(REG reg)
 {
     BUG_ON(reg == REGISTER_INVALID);
     BUG_ON(reg > REGISTER_MAX);
-    // inner reg
-    REG ireg = get_reg_inner_name(reg);
-    return g_registers + ireg;
+    // full reg name
+    REG fullreg = REG_FullRegName(reg);
+    BUG_ON(fullreg != get_reg_inner_name(reg));
+    return g_registers + fullreg;
 }
 
 bool isRegisterOffsetTainted(REG reg, UINT32 offset)
