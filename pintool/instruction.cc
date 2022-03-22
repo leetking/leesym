@@ -334,7 +334,12 @@ VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 {
     if (isRegisterTainted(reg1) || isRegisterTainted(reg2)) {
         cmp_tainted = true;
-        tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+        // test rax, rax ==> cmp rax, 0x0
+        if (reg1 == reg2 && (0 == strncmp(insDis.c_str(), "test", 4))) {
+            tracelog_regimm(insAddr, insDis, reg1, val1, 0x0, size);
+        } else {
+            tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
+        }
     }
 }
 
