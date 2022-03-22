@@ -96,7 +96,7 @@ VOID taintMOVS(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT memOp1, U
 
 void taintRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG src, REG dst, ADDRINT val, UINT32 size)
 {
-    // TODO 处理 mov eax, eav 这类会符号扩展到 rax 高位的情况
+    // TODO 处理 mov eax, eax 这类会符号扩展到 rax 高位的情况, clear 高位
     BUG_ON(size > REG_Size(dst));
 
     if (src == dst) {
@@ -345,15 +345,28 @@ VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCoun
     BUG_ON(REG_Size(reg1) > 64);
     BUG_ON(REG_Size(reg2) > 64);
 
-    UINT64 val1, val2;
-    val1 = get_reg_value(ctx, reg1);
-    val2 = get_reg_value(ctx, reg2);
+    UINT8 val1[REGISTER_WIDTH], val2[REGISTER_WIDTH];
+    PIN_GetContextRegval(ctx, reg1, val1);
+    PIN_GetContextRegval(ctx, reg2, val2);
 
-    if (isRegisterTainted(reg1) || isRegisterTainted(reg2)) {
-        cmp_tainted = true;
+    if (isRegisterTainted(reg1) || isRegisterTainted(reg2))
         tracelog_regreg(insAddr, insDis, reg1, val1, reg2, val2, size);
-    }
 }
+
+VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg, ADDRINT addr, UINT32 size)
+{
+    BUG_ON(REG_Size(reg) > 64);
+    BUG_ON(size > REGISTER_WIDTH);
+
+    UINT8 regval[REGISTER_WIDTH];
+    PIN_GetContextRegval(ctx, reg, regval);
+    MemBlock mem;
+    initMemTaint(&mem, addr, size);
+
+    if (isRegisterTainted(reg) || mem.tainted)
+        tracelog_regmem(insAddr, insDis, reg, regval, addr, (UINT8*)addr, size);
+}
+
 
 VOID traceCMPRegImm(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADDRINT val, UINT32 size, UINT64 imm)
 {
@@ -368,22 +381,6 @@ VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg, ADD
     BUG_ON(size > REGISTER_WIDTH);
     BUG_ON(size > REG_Size(reg));
 
-    MemBlock mem;
-    initMemTaint(&mem, addr, size);
-
-    if (isRegisterTainted(reg) || mem.tainted) {
-        cmp_tainted = true;
-        UINT64 memval = read_uint((UINT8*)addr, size);
-        tracelog_regmem(insAddr, insDis, reg, val, addr, memval, size);
-    }
-}
-
-VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg, ADDRINT addr, UINT32 size)
-{
-    BUG_ON(REG_Size(reg) > 64);
-    BUG_ON(size > REGISTER_WIDTH);
-
-    UINT64 val = get_reg_value(ctx, reg);
     MemBlock mem;
     initMemTaint(&mem, addr, size);
 
@@ -465,8 +462,8 @@ VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, 
 
 VOID traceXORRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size)
 {
-    // xor eax, eax ==> mov eax, 0x0
-    // pxor xmm0, xmm0 ==> mov xmm0, 0x0
+    // xor eax, eax <==> mov eax, 0x0
+    // pxor xmm0, xmm0 <==> mov xmm0, 0x0
     if (reg1 == reg2) {
         clearRegister(reg1, size);
         return;

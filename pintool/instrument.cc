@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
@@ -158,6 +157,8 @@ REG get_reg_inner_name(REG reg)
         return REG_ESI;
 #endif
 
+    case REG_BP:
+    case REG_BPL:
     case REG_EBP:
 #ifdef TARGET_IA32E
     case REG_RBP:
@@ -317,7 +318,13 @@ Register* getTaintRegister(REG reg)
     BUG_ON(reg > REGISTER_MAX);
     // full reg name
     REG fullreg = REG_FullRegName(reg);
-    BUG_ON(fullreg != get_reg_inner_name(reg));
+    if (fullreg != get_reg_inner_name(reg)) {
+        printf("reg: %s, inner: %s, fullreg: %s\n",
+                REG_StringShort(reg).c_str(),
+                REG_StringShort(get_reg_inner_name(reg)).c_str(),
+                REG_StringShort(fullreg).c_str());
+        BUG_ON(fullreg != get_reg_inner_name(reg));
+    }
     return g_registers + fullreg;
 }
 

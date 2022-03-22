@@ -46,6 +46,12 @@ void dump_value(UINT64 val, UINT32 size)
         trace << setw(2) << setfill('0') << std::hex << int(bytes[c]);
 }
 
+void dump_value(UINT8 const* bytes, UINT32 size)
+{
+    for (UINT32 c = 0; c < size; c++)
+        trace << setw(2) << setfill('0') << std::hex << int(bytes[c]);
+}
+
 void dump_addr(UINT8 const* addr, UINT32 size)
 {
     for (UINT32 c = 0; c < size; c++)
@@ -83,6 +89,14 @@ void tracelog_regimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 val, 
 
 //trace reg reg
 void tracelog_regreg(UINT64 insAddr, string const& insDis, REG reg1, UINT64 val1, REG reg2, UINT64 val2, UINT32 size)
+{
+    UINT8 const* bytes1 = reinterpret_cast<UINT8 const*>(&val1);
+    UINT8 const* bytes2 = reinterpret_cast<UINT8 const*>(&val2);
+    tracelog_regreg(insAddr, insDis, reg1, bytes1, reg2, bytes2, size);
+}
+
+// 对于超长寄存器
+void tracelog_regreg(UINT64 insAddr, string const& insDis, REG reg1, UINT8 const* val1, REG reg2, UINT8 const* val2, UINT32 size)
 {
     UINT32 r1size = min(size, REG_Size(reg1));
     UINT32 r2size = min(size, REG_Size(reg2));
@@ -143,7 +157,15 @@ void tracelog_regmemimm(UINT64 insAddr, string const& insDis, REG reg, UINT64 va
 }
 
 //trace reg mem
-void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, UINT64 val1, ADDRINT addr, INT64 val2, UINT32 size)
+void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, UINT64 val1, ADDRINT addr, UINT64 val2, UINT32 size)
+{
+    UINT8 const* bytes1 = reinterpret_cast<UINT8 const*>(&val1);
+    UINT8 const* bytes2 = reinterpret_cast<UINT8 const*>(&val2);
+    tracelog_regmem(insAddr, insDis, reg, bytes1, addr, bytes2, size);
+}
+
+//trace reg mem
+void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, UINT8 const* val1, ADDRINT addr, UINT8 const* val2, UINT32 size)
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
 
@@ -159,7 +181,7 @@ void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, UINT64 val1,
 }
 
 //trace mem reg
-void tracelog_memreg(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 val1, REG reg, UINT64 val2, UINT32 size)
+void tracelog_memreg(UINT64 insAddr, string const& insDis, ADDRINT addr, UINT64 val1, REG reg, UINT64 val2, UINT32 size)
 {
     UINT32 regsize = min(size, REG_Size(reg));
     trace << hex << "0x" << insAddr << "." << insDis << ".";
@@ -176,7 +198,7 @@ void tracelog_memreg(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 v
 }
 
 //trace mem mem
-void tracelog_memmem(UINT64 insAddr, string const& insDis, ADDRINT addr1, INT64 val1, ADDRINT addr2, INT64 val2, UINT32 size)
+void tracelog_memmem(UINT64 insAddr, string const& insDis, ADDRINT addr1, UINT64 val1, ADDRINT addr2, UINT64 val2, UINT32 size)
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_mem_offset(addr1, size);
@@ -204,7 +226,7 @@ void tracelog_memmem_addr(UINT64 insaddr, string const& disasm, ADDRINT addr1, A
 }
 
 //trace mem
-void tracelog_mem(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 val, UINT32 size)
+void tracelog_mem(UINT64 insAddr, string const& insDis, ADDRINT addr, UINT64 val, UINT32 size)
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_mem_offset(addr, size);
@@ -215,7 +237,7 @@ void tracelog_mem(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 val,
 }
 
 //trace mem imm
-void tracelog_memimm(UINT64 insAddr, string const& insDis, ADDRINT addr, INT64 val, UINT64 imm, UINT32 size)
+void tracelog_memimm(UINT64 insAddr, string const& insDis, ADDRINT addr, UINT64 val, UINT64 imm, UINT32 size)
 {
     trace << hex << "0x" << insAddr << "." << insDis << ".";
     dump_mem_offset(addr, size);
@@ -318,34 +340,3 @@ void tracelog_ins(UINT64 insaddr, string const& insdis)
     trace << endl;
 }
 
-#if 0
-//trace reg reg SIMD
-// TODO 什么是 reg mem SIMD
-void tracelog_regreg(UINT64 insAddr, string const& insDis, REG reg1, INT64 val1, REG reg2, INT64 val2, UINT32 size)
-{
-    trace << hex << "0x" << insAddr << "." << insDis << ".";
-    dump_reg_offset(reg1, size);
-    dump_reg_offset(reg2, size);
-    trace << ".";
-
-    dump_value(val1, size);
-    trace << ".";
-    dump_value(val2, size);
-    trace << "." << endl;
-}
-
-//trace reg mem SIMD
-// TODO 什么是 reg mem SIMD
-void tracelog_regmem(UINT64 insAddr, string const& insDis, REG reg, INT64 val1, ADDRINT addr, INT64 val2, UINT32 size)
-{
-    trace << hex << "0x" << insAddr << "." << insDis << ".";
-    dump_reg_offset(reg, size);
-    dump_mem_offset(addr, size);
-    trace << ".";
-
-    dump_value(val1, size);
-    trace << ".";
-    dump_value(val2, size);
-    trace << "." << endl;
-}
-#endif

@@ -13,7 +13,7 @@
 #define IARG_DISASM(ins)        IARG_PTR, new std::string(INS_Disassemble(ins))
 #define IARG_REG(ins, opn)      IARG_UINT32, INS_OperandReg(ins, (opn))
 #define IARG_REGVALUE(ins, opn) IARG_REG_VALUE, INS_RegR(ins, (opn))
-#define IARG_OPWIDTH(ins, opn)  IARG_UINT32, INS_OperandWidth(ins, (opn))/8
+#define IARG_OPWIDTH(ins, opn)  IARG_UINT32, (INS_OperandWidth(ins, (opn))/8)
 #define IARG_OPIMM(ins, opn)    IARG_UINT64, INS_OperandImmediate(ins, (opn))
 #define IARG_RDMEMSIZE(ins)     IARG_UINT32, INS_MemoryReadSize(ins)
 #define IARG_WRMEMSIZE(ins)     IARG_UINT32, INS_MemoryWriteSize(ins)
@@ -23,9 +23,9 @@
 #define IARG_DISPLACEMENT(ins, opn) IARG_UINT32, INS_OperandMemoryDisplacement(ins, (opn))
 
 #ifdef SHOW_INS
-static void print_instruction(ADDRINT insaddr, string const& disasm, UINT32 opcnt)
+static void print_instruction(ADDRINT insaddr, string const& disasm)
 {
-    printf("%lx: %s, %d\n", insaddr, disasm.c_str(), opcnt);
+    printf("%lx: %s\n", insaddr, disasm.c_str());
 }
 #endif // SHOW_INS
 
@@ -34,17 +34,16 @@ VOID Instruction(INS ins, VOID *v)
 {
     if(!isTaintStart)
         return;
-     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
 
 #ifdef SHOW_INS
     INS_InsertCall(
                 ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
                 IARG_INSADDR(ins),
                 IARG_DISASM(ins),
-                IARG_UINT32, INS_OperandCount(ins),
                 IARG_END);
 #endif // SHOW_INS
 
+    xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
     switch (ins_indx) {
     // 复制 DS:SI -> ES:DI
     case XED_ICLASS_MOVSQ:  // 8B
@@ -186,25 +185,6 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_RDMEMSIZE(ins),
                     IARG_END);
         }
-#if 0
-        // 不同于 lea eax, [ebx+4*ecx+0x42] 这是 Addr Gen, jmp 的为内存操作数
-        else if (INS_OperandIsAddressGenerator(ins, OP_0)) {
-        }
-        // jmp 0xdeadbeef, 不可能被污染，不记录
-        else if (INS_OperandIsBranchDisplacement(ins, OP_0)) {
-            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
-                    IARG_INSADDR(ins),
-                    IARG_DISASM(ins),
-                    IARG_END);
-        }
-        else {
-            INS_InsertCall(
-                    ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-                    IARG_INSADDR(ins),
-                    IARG_DISASM(ins),
-                    IARG_END);
-        }
-#endif
         break;
 
     /* TODO */
@@ -357,54 +337,50 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_PCMPGTW:
     case XED_ICLASS_PCMPGTD:
     case XED_ICLASS_PCMPGTQ:
-        // FIXME 对 pcmpxx 指令的而支持，目前先直接跳过
-        break;
-        if(INS_MemoryOperandCount(ins) == 0){
-            // pcmpeq reg, reg
-            if(!INS_OperandIsImmediate(ins, OP_1)){
+        if (INS_OperandIsReg(ins, OP_0)) {
+            // pcmpxx reg, reg
+            if (INS_OperandIsReg(ins, OP_1)) {
                 INS_InsertCall(
-                    ins, IPOINT_BEFORE, (AFUNPTR)tracePCMPRegReg,
-                    IARG_ADDRINT, INS_Address(ins),
-                    IARG_PTR, new string(INS_Disassemble(ins)),
-                    IARG_CONTEXT,
-                    IARG_UINT32, INS_OperandCount(ins),
-                    IARG_UINT32, INS_RegR(ins, OP_0),
-                    IARG_UINT32, INS_RegR(ins, OP_1),
-                    IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
-                    IARG_END);
+                        ins, IPOINT_BEFORE, (AFUNPTR)tracePCMPRegReg,
+                        IARG_ADDRINT, INS_Address(ins),
+                        IARG_PTR, new string(INS_Disassemble(ins)),
+                        IARG_CONTEXT,
+                        IARG_UINT32, INS_OperandCount(ins),
+                        IARG_REG(ins, OP_0),
+                        IARG_REG(ins, OP_1),
+                        IARG_OPWIDTH(ins, OP_0),
+                        IARG_END);
             }
-            else{
+            // pcmpxx reg, mem
+            else if (INS_OperandIsMemory(ins, OP_2)) {
                 INS_InsertCall(
-                    ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
-                    IARG_ADDRINT, INS_Address(ins),
-                    IARG_PTR, new string(INS_Disassemble(ins)),
-                    IARG_END);
+                        ins, IPOINT_BEFORE, (AFUNPTR)tracePCMPRegMem,
+                        IARG_ADDRINT, INS_Address(ins),
+                        IARG_PTR, new string(INS_Disassemble(ins)),
+                        IARG_CONTEXT,
+                        IARG_UINT32, INS_OperandCount(ins),
+                        IARG_REG(ins, OP_0),
+                        IARG_MEMORYREAD_EA,
+                        IARG_RDMEMSIZE(ins),
+                        IARG_END);
+            }
+            else {
+                INS_InsertCall(
+                        ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
+                        IARG_ADDRINT, INS_Address(ins),
+                        IARG_PTR, new string(INS_Disassemble(ins)),
+                        IARG_END);
             }
         }
         else {
-            // pcmpeq reg, mem
-            if(INS_OperandIsReg(ins, OP_0)){
-                INS_InsertCall(
-                    ins, IPOINT_BEFORE, (AFUNPTR)tracePCMPRegMem,
-                    IARG_ADDRINT, INS_Address(ins),
-                    IARG_PTR, new string(INS_Disassemble(ins)),
-                    IARG_CONTEXT,
-                    IARG_UINT32, INS_OperandCount(ins),
-                    IARG_UINT32, INS_RegR(ins, OP_0),
-                    IARG_MEMORYREAD_EA,
-                    IARG_UINT32, INS_MemoryReadSize(ins),
-                    IARG_END);
-            } 
-            else{
-                INS_InsertCall(
+            INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
                     IARG_ADDRINT, INS_Address(ins),
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_END);
-            }
         }
         break;
-    
+
     case XED_ICLASS_PUSH:
         //reg -> memory
         if(INS_OperandIsReg(ins, OP_0)){
@@ -418,7 +394,7 @@ VOID Instruction(INS ins, VOID *v)
                 IARG_REG_VALUE, INS_OperandReg(ins, OP_0),
                 IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                 IARG_END);
-        } 
+        }
         // memory -> memory
         else if(INS_OperandIsMemory(ins, OP_0)){
             INS_InsertCall(
@@ -632,7 +608,7 @@ VOID Instruction(INS ins, VOID *v)
                             IARG_END);
                     }
                 }
-            } 
+            }
             // mem, reg
             else if(INS_OperandIsReg(ins, OP_1)){
                 if(REG_is_xmm_ymm_zmm(INS_OperandReg(ins, OP_1)) || REG_is_mm(INS_OperandReg(ins, OP_1))){
@@ -1092,8 +1068,7 @@ VOID Instruction(INS ins, VOID *v)
                 }
             }
         }
-    
-    break;  
+    break;
 
     case XED_ICLASS_SHLD:
     case XED_ICLASS_SHRD:
@@ -1102,28 +1077,28 @@ VOID Instruction(INS ins, VOID *v)
             IARG_ADDRINT, INS_Address(ins),
             IARG_PTR, new string(INS_Disassemble(ins)),
             IARG_END);
-
         break;
 
     case XED_ICLASS_MOV:
-    case XED_ICLASS_MOVSX:
-    case XED_ICLASS_MOVSXD:
-    case XED_ICLASS_MOVZX:
-    
-    case XED_ICLASS_MOVQ:
-    case XED_ICLASS_MOVD:
-    case XED_ICLASS_VMOVDQA:
-    case XED_ICLASS_MOVDQA:
-    case XED_ICLASS_VMOVAPS:
-    case XED_ICLASS_MOVAPS:
-    case XED_ICLASS_VMOVDQU:
-    case XED_ICLASS_MOVDQU:
-    case XED_ICLASS_VMOVQ:
-    case XED_ICLASS_VMOVD:
-    case XED_ICLASS_MOVAPD:
-    case XED_ICLASS_VMOVAPD:
+    case XED_ICLASS_MOVSX:  // move with sign extend, r16/32/64 <- r/m8/16
+    case XED_ICLASS_MOVSXD: // r16/32/64 <- r/m32/64
+    case XED_ICLASS_MOVZX:  // zero extend, r16/32/64 <- r/m8/16
 
-        if(INS_MemoryOperandCount(ins) == 0){
+    case XED_ICLASS_MOVD:   // xmm <- r/m32, MMX or SSE2 指令集
+    case XED_ICLASS_MOVQ:   // xmm <- r/m64
+    case XED_ICLASS_VMOVQ:  // AVX 指令集, 类似 movq
+    case XED_ICLASS_VMOVD:
+
+    case XED_ICLASS_MOVDQA: // 移动对齐 128 bits 数据: xmm <- xmm/m128
+    case XED_ICLASS_MOVDQU: // 非对齐
+    case XED_ICLASS_VMOVDQU:
+    case XED_ICLASS_VMOVDQA:
+
+    case XED_ICLASS_MOVAPS: // mov Aligned Packed Single floating, xmm <- xmm/m128
+    case XED_ICLASS_MOVAPD:
+    case XED_ICLASS_VMOVAPS:
+    case XED_ICLASS_VMOVAPD:
+        if (INS_MemoryOperandCount(ins) == 0) {
             //reg, reg
             if(!INS_OperandIsImmediate(ins, OP_1)){
                 INS_InsertCall(
@@ -1133,10 +1108,10 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_OperandCount(ins),
                     IARG_UINT32, INS_RegR(ins, OP_0),
                     IARG_UINT32, INS_RegW(ins, OP_0),
-                    IARG_ADDRINT, 0,
+                    IARG_ADDRINT, 0,    // unused
                     IARG_UINT32, INS_OperandWidth(ins, OP_1)/8,
                     IARG_END);
-            } 
+            }
             // reg, imm
             else{
                 INS_InsertCall(
@@ -1145,7 +1120,6 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_UINT32, INS_OperandCount(ins),
                     IARG_UINT32, INS_RegW(ins, OP_0),
-                    IARG_ADDRINT, 0,
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                     IARG_END);
             }

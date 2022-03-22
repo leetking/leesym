@@ -162,7 +162,6 @@ VOID SysBefore(ADDRINT ip, ADDRINT num, ADDRINT arg0, ADDRINT arg1, ADDRINT arg2
         break;
 
     case __NR_close:
-        logfile << "[close]\t\tfd: " << arg0 << endl;
         close_info.fd = arg0;
         break;
 
@@ -329,9 +328,10 @@ VOID SysAfter(ADDRINT ret)
     case __NR_close:
         if (syscall_failed(ret))
             break;
+        logfile << "[close]\t\tfd: " << close_info.fd << endl;
         if (is_target_fd(close_info.fd)) {
             remove_target_fd(close_info.fd);
-            logfile << "[TAINT]\tClose input file fd " << close_info.fd << endl;
+            logfile << "[close]\t\tclose taint input file fd " << close_info.fd << endl;
         }
         close_info.fd = INVALID_FD;
         break;
@@ -350,7 +350,7 @@ VOID SysAfter(ADDRINT ret)
             break;
         if (!is_target_fd(lseek_info.fd))
             break;
-        logfile << "[TAINT]\t\tSeek curr to " << ret << endl;
+        logfile << "[TAINT]\t\tSeek curr to " << *lseek_info.result << endl;
         set_file_offset(lseek_info.fd, *lseek_info.result);
         break;
 
@@ -390,7 +390,7 @@ VOID SysAfter(ADDRINT ret)
             break;
         BUG_ON(dup_info.src == dup_info.dst);
         if (is_target_fd(dup_info.dst)) {
-            logfile << "[TAINT]\t\tDup2/3 close input file fd " << dup_info.dst << endl;
+            logfile << "[dup2/3]\tdup2/3 close input file fd " << dup_info.dst << endl;
             remove_target_fd(dup_info.dst);
         }
         if (is_target_fd(dup_info.src)) {
