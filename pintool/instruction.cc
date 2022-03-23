@@ -154,6 +154,10 @@ VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
         if (b)
             offset[i] = b->offset;
     }
+    //if (0 == strncmp(insDis.c_str(), "movdqa", 6)) {
+    //    UINT8 regval[REGISTER_WIDTH] = "";
+    //    tracelog_regmem(insAddr, insDis, reg, regval, addr, (UINT8*)addr, size);
+    //}
     taintRegister(reg, offset, size);
 }
 
@@ -343,9 +347,33 @@ VOID traceCMPRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
     }
 }
 
+void trace_vpcmp_rrr(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src1, REG src2)
+{
+    BUG_ON(REG_Size(src1) != REG_Size(src2));
+    UINT32 regsize = REG_Size(src1);
+    if (isRegisterTainted(src1) || isRegisterTainted(src2)) {
+        UINT8 src1val[REGISTER_WIDTH], src2val[REGISTER_WIDTH];
+        PIN_GetContextRegval(ctx, src1, src1val);
+        PIN_GetContextRegval(ctx, src2, src2val);
+        tracelog_regreg(insaddr, disasm, src1, src1val, src2, src2val, regsize);
+    }
+    clearRegister(dst, REG_Size(dst));
+}
+
+void trace_vpcmp_rrm(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src1, ADDRINT addr, UINT32 memsize)
+{
+    MemBlock mem;
+    initMemTaint(&mem, addr, memsize);
+    if (isRegisterTainted(src1) || mem.tainted) {
+        UINT8 srcval[REGISTER_WIDTH];
+        PIN_GetContextRegval(ctx, src1, srcval);
+        tracelog_regmem(insaddr, disasm, src1, srcval, addr, (UINT8*)addr, memsize);
+    }
+    clearRegister(dst, REG_Size(dst));
+}
+
 VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, REG reg2, UINT32 size)
 {
-    // TODO 这里 size 难道会和 REG_Size(reg1) 不等吗
     BUG_ON(REG_Size(reg1) != size);
     BUG_ON(REG_Size(reg1) > 64);
     BUG_ON(REG_Size(reg2) > 64);

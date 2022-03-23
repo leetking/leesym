@@ -22,6 +22,8 @@ VOID traceCMPRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, AD
 VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, REG reg1, ADDRINT val, UINT32 size);
 VOID traceCMPMemImm(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, UINT32 size, UINT64 imm);
 VOID traceCMPS(ADDRINT insAddr, string insDis, UINT32 opCount, BOOL isFirst , ADDRINT addr1, ADDRINT addr2, UINT32 size, UINT32 count);
+void trace_vpcmp_rrr(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src1, REG src2);
+void trace_vpcmp_rrm(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src1, ADDRINT addr, UINT32 memsize);
 VOID tracePCMPRegReg(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, REG reg2, UINT32 size);
 VOID tracePCMPRegMem(ADDRINT insAddr, string insDis, CONTEXT* ctx, UINT32 opCount, REG reg1, ADDRINT addr, UINT32 size);
 VOID traceArithRegReg(ADDRINT insAddr, string insDis, UINT32 opCount, REG reg1, ADDRINT val1, REG reg2, ADDRINT val2, UINT32 size);

@@ -329,8 +329,8 @@ VOID Instruction(INS ins, VOID *v)
         break;
 
     case XED_ICLASS_PCMPEQB:
-    case XED_ICLASS_PCMPEQD:
     case XED_ICLASS_PCMPEQW:
+    case XED_ICLASS_PCMPEQD:
     case XED_ICLASS_PCMPEQQ:
 
     case XED_ICLASS_PCMPGTB:
@@ -378,6 +378,42 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_ADDRINT, INS_Address(ins),
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_END);
+        }
+        break;
+
+    case XED_ICLASS_VPCMPEQB:
+    case XED_ICLASS_VPCMPEQW:
+    case XED_ICLASS_VPCMPEQD:
+    case XED_ICLASS_VPCMPEQQ:
+
+    case XED_ICLASS_VPCMPGTB:
+    case XED_ICLASS_VPCMPGTW:
+    case XED_ICLASS_VPCMPGTD:
+    case XED_ICLASS_VPCMPGTQ:
+        // vpcmp xmm1, xmm2, xmm3
+        if (INS_OperandIsReg(ins, OP_2)) {
+            INS_InsertCall(
+                ins, IPOINT_BEFORE, (AFUNPTR)trace_vpcmp_rrr,
+                IARG_ADDRINT, INS_Address(ins),
+                IARG_PTR, new string(INS_Disassemble(ins)),
+                IARG_CONTEXT,
+                IARG_REG(ins, OP_0),
+                IARG_REG(ins, OP_1),
+                IARG_REG(ins, OP_2),
+                IARG_END);
+        }
+        // vpcmp xmm1, xmm2, m128
+        else if (INS_OperandIsMemory(ins, OP_2)) {
+            INS_InsertCall(
+                ins, IPOINT_BEFORE, (AFUNPTR)trace_vpcmp_rrm,
+                IARG_ADDRINT, INS_Address(ins),
+                IARG_PTR, new string(INS_Disassemble(ins)),
+                IARG_CONTEXT,
+                IARG_REG(ins, OP_0),
+                IARG_REG(ins, OP_1),
+                IARG_MEMORYREAD_EA,
+                IARG_MEMORYREAD_SIZE,
+                IARG_END);
         }
         break;
 
@@ -1099,8 +1135,8 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_VMOVAPS:
     case XED_ICLASS_VMOVAPD:
         if (INS_MemoryOperandCount(ins) == 0) {
-            //reg, reg
-            if(!INS_OperandIsImmediate(ins, OP_1)){
+            // reg, reg
+            if (!INS_OperandIsImmediate(ins, OP_1)) {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)taintRegReg,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1113,7 +1149,7 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_END);
             }
             // reg, imm
-            else{
+            else {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)taintRegImm,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1124,9 +1160,9 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_END);
             }
         }
-        else{
+        else {
             // reg, mem
-            if(INS_OperandIsReg(ins, OP_0)){
+            if (INS_OperandIsReg(ins, OP_0)) {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)taintRegMem,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1136,9 +1172,9 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_RegW(ins, OP_0),
                     IARG_UINT32, INS_MemoryReadSize(ins),
                     IARG_END);
-            } 
+            }
             // mem, reg
-            else if(INS_OperandIsReg(ins, OP_1)){
+            else if (INS_OperandIsReg(ins, OP_1)) {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)taintMemReg,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1149,9 +1185,9 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_ADDRINT, 0,
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
                     IARG_END); 
-            } 
+            }
             // mem, imm
-            else if(INS_OperandIsImmediate(ins, OP_1)){
+            else if (INS_OperandIsImmediate(ins, OP_1)) {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)taintMemImm,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1159,9 +1195,9 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_UINT32, INS_OperandCount(ins),
                     IARG_MEMORYWRITE_EA,
                     IARG_UINT32, INS_OperandWidth(ins, OP_0)/8,
-                    IARG_END);   
-            } 
-            else{
+                    IARG_END);
+            }
+            else {
                 INS_InsertCall(
                     ins, IPOINT_BEFORE, (AFUNPTR)traceUnsupport,
                     IARG_ADDRINT, INS_Address(ins),
@@ -1169,7 +1205,6 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_END);
             }
         }
-
         break;
 
     /* conditional movs */
@@ -1190,7 +1225,6 @@ VOID Instruction(INS ins, VOID *v)
     case XED_ICLASS_CMOVP:
     case XED_ICLASS_CMOVS:
     case XED_ICLASS_CMOVZ:
-    
         if(INS_MemoryOperandCount(ins) == 0){
             if(!INS_OperandIsImmediate(ins, OP_1)){
                 //reg, reg

@@ -96,6 +96,10 @@ def get_byte(num, idx):
     # int.to_bytes(1, 'little')
     return (num >> (8*idx)) & 0xff
 
+def get_bytes(num, start, end):
+    mask = (1<<((end-start)*8)) - 1
+    return (num >> (8*start)) & mask
+
 
 def subpart(bitvec, start, end):
     size = bitvec.size()
@@ -113,53 +117,141 @@ COND_LE = 0x4   # <=
 COND_GT = 0x5   # >
 COND_GE = 0x6   # >=
 
+class InstructionErr(Exception):
+    pass
+
+class Operand:
+    def __init__(self, offset, vlaue, size):
+        self._offset = offset
+        self._value = value
+        self._size = size
+
+    @property
+    def offset(self):
+        return self._offset
+
+    @property
+    def value(self):
+        return self._value
+
+    @property
+    def size(self):
+        return self._size
+
+    def subbyte(self, idx):
+        assert 0 <= idx < self.size
+        return Operand(self.offset[idx:idx+1], get_byte(self.value, idx), 1)
+
+    def subpart(self, start, end):
+        assert 0 <= start < end < self.size
+        return Operand(self.offset[start:end], get_bytes(self.value, start, end), end-start)
+
 class Instruction:
+    width_suffix = {'b': 1, 'w': 2, 'd': 4, 'q': 8,}
+    pcmpeq_ins = ('vpcmpeqb', 'vpcmpeqw', 'vpcmpeqd', 'vpcmpeqq',
+                  'pcmpeqb', 'pcmpeqw', 'pcmpeqd', 'pcmpeqq')
+    pcmpgt_ins = ('vpcmpgtb', 'vpcmpgtw', 'vpcmpgtd', 'vpcmpgtq',
+                  'pcmpgtb', 'pcmpgtw', 'pcmpgtd', 'pcmpgtq')
+    simd_ins = pcmpeq_ins + pcmpgt_ins
+
     @staticmethod
-    def _is_condjmp(asm):
-        ins = asm.split()[0]
+    def is_condjmp(ins):
+        if not isinstance(ins, (CondJumpIns, str)):
+            return False
+        if isinstance(ins, CondJumpIns):
+            return True
         if 'j' != ins[0]:
             return False
-        if ins in ('jl', 'jnge',   # <
-                   'jle', 'jng',   # <=
-                   'jg',  'jnle',  # >
-                   'jge', 'jnl',   # >=
-                   'jz',   'je',   # ==
-                   'jnz',  'jne',  # !=
-                   'jb',   'jnae', # <
-                   'jbe',  'jna',  # <=
-                   'ja',   'jnbe', # >
-                   'jae',  'jnb',  # >=
-                   'js',   'jns',  # SF is set
-                   'jp',   'jnp'): # PF is set
+        name = ins.split()[0]   # 'ja'.split()[0] == 'ja'
+        if CondJumpIns.contains(name):
             return True
-        warn("Maybe forget condition jump: ", asm)
         return False
 
     @staticmethod
-    def _is_jmp(asm):
-        return 'jmp' == asm.split()[0]
+    def is_jump(ins):
+        if not isinstance(ins, (JumpIns, str)):
+            return False
+        if isinstance(ins, JumpIns):
+            return True
+        return 'jmp' == ins.split()[0]
 
     @staticmethod
-    def _classify(addr, asm, size=None, result=None, offsets=None, values=None):
+    def is_compare(ins):
+        pass
+
+    @staticmethod
+    def is_arimetic(ins):
+        if not isinstance(ins, (ArithmeticIns, str)):
+            return False
+        if isinstance(ins, ArithmeticIns):
+            return True
+        name = ins.split()[0]
+        if ArithmeticIns.contains(name):
+            return True
+        return False
+
+    @staticmethod
+    def is_simd(ins):
+        if not isinstance(ins, str):
+            return False
+        name = ins.split()[0]
+        return name in Instruction.simd_ins
+
+    @staticmethod
+    def is_splited_simd(ins):
+        return hasattr(ins, 'simd') and ins.simd == True
+
+    @staticmethod
+    def is_division(ins):
+        if not isinstance(ins, (ArithmeticIns, str)):
+            return False
+        name = ins.name if isinstance(ins, ArithmeticIns) else ins.split()[0]
+        return name in ('div', 'idiv')
+
+    @staticmethod
+    def _split_simd(addr, asm, size, offsets, values):
+        name, *operands = asm.split()
+        width = Instruction.width_suffix[name[-1]]
+        if name in Instruction.pcmpeq_ins:
+            name = 'test'
+            cond = COND_EQ
+        elif name in Instruction.pcmpgt_ins:
+            name = 'cmp'
+            cond = COND_GT
+        else:
+            raise InstructionErr("Unspport SIMD instruction {}".format(name))
+        asm = ' '.join([name, *operands])
+        ret = []
+        for i in range(0, size, width):
+            suboffsets = tuple(offset[i:i+width] for offset in offsets)
+            subvalues = tuple(get_bytes(val, i, i+width) for val in values)
+            ins = Instruction._classify(addr, asm, width, suboffsets, subvalues)
+            ins.simd = True
+            if is_compare(ins):
+                ins.condition = cond
+            ret.append(ins)
+        return ret
+
+    @staticmethod
+    def _classify(addr, asm, size=None, offsets=None, values=None, result=None):
+        # TODO 重构此函数
         ins = asm.split()[0]
         if ins in ('cmp', 'test', 'cmpxchg'):
             return CompareIns(addr, asm, size, offsets, values)
         if ins in ('jmp'):
             return JumpIns(addr, asm, size, result, offsets, values)
-        if Instruction._is_condjmp(ins):
+        if Instruction.is_condjmp(ins):
             return CondJumpIns(addr, asm)
         if ins in ('add', 'adc', 'sub', 'sbb', 'mul', 'imul', 'div', 'idiv',
                    'inc', 'dec',
                    'not', 'and', 'or', 'xor', 'pxor', 'pand', 'por',
                    'shr', 'shl', 'lea',
                    'ror', 'rol', 'sar', 'sal', 'bswap',
-                   'addsd', 'subsd',
-                   'pcmpeqb', 'pcmpeqw', 'pcmpeqd', # XMM 相等比较指令, 1b, 2b, 4b
-                   'pcmpgtb', 'pcmpgtw', 'pcmpgtd',):
+                   'addsd', 'subsd'):
             return ArithmeticIns(addr, asm, size, offsets, values)
         if ins == 'rep' and asm.split()[1] in ('cmpsb', 'cmpsw', 'cmpsd'):
             return CompareIns(addr, asm, size, offsets, values)
-        raise ValueError("Unspport instruction {}".format(asm))
+        raise InstructionErr("Unspport instruction {}".format(asm))
 
     @staticmethod
     def from_trace(trace: str):
@@ -173,30 +265,77 @@ class Instruction:
         addr = int(addr, 16)
         asm = asm.lower()
         result = None
-        if Instruction._is_condjmp(asm):
+        if Instruction.is_condjmp(asm):
             return Instruction._classify(addr, asm)
-        if Instruction._is_jmp(asm):
+        if Instruction.is_jump(asm):
             result, offsets, *values = rest
         else:
             offsets, *values = rest
         offsets = parse_offsets(offsets)
         values = tuple(int_fromhex(v) for v in values if v)
         size = max(len(off) for off in offsets)
-        return Instruction._classify(addr, asm, size, result, offsets, values)
+        if Instruction.is_simd(asm):
+            return Instruction._split_simd(addr, asm, size, offsets, values)
+        return Instruction._classify(addr, asm, size, offsets, values, result)
 
     @staticmethod
     def beautify(ins):
         result = ""
         if is_arimetic(ins):
             result = " => {}".format(ins.execute())
-        name = ins.asm.split()[0]
+        name = ins.name
         if is_compare(ins):
-            name = ins.strcond()
+            name = ins._strcond()
         values = ", ".join("{}".format(v) for v in ins.values)
         return f"{name} {values}{result}"
 
 
 class ArithmeticIns:
+    unary_ins = {
+        # name: concret evaluate, symbolic evaluate
+        'not': (operator.not_, operator.not_),
+    }
+    binary_ins = {
+        'add': (),
+        'adc': (),
+        'sub': (),
+        'sbb': (),
+        'mul': (),
+        'imul': (),
+    }
+    multi_ins = {
+        'lea': None,
+    }
+    ops = {
+        #'not': operator.not_,      # 按bits操作
+        #'lea': None,
+        #'ror': None,               # 循环右移
+        #'rol': None,
+        #'shr': operator.rshift,    # 逻辑右移
+        #'sar': None
+        #'shl': operator.lshift,
+        #'sal': operator.lshift,     # 算术左移
+        #'idiv': None,
+        #'div': None,
+        #'bswap': None,             # 按字节交换
+        #'addsd': None,             # addsd xmm0, xmm1 低 64 为double浮点数运算. sd: scale double, pd: packed double
+        #'subsd': None,             # 类似 addsd
+        #'pcmpeqb': None,           # xmm 指令集，按照字节比较，相等置目标字节为 FF，否则为 0
+        #'cmpxchg': None,
+        'add': operator.add,
+        'adc': operator.add,        # 加上 CF 标志位的加法
+        'sub': operator.sub,
+        'sbb': operator.sub,        # 减去 CF 标志位的减法，用于实现操作寄存器长度的减法操作. e.g. 32 模拟 64 位运算
+        'mul': operator.mul,
+        'imul': operator.mul,
+        'and': operator.and_,
+        'pand': operator.and_,      # MMX 指令
+        'or': operator.or_,
+        'por': operator.or_,
+        'xor': operator.xor,
+        'pxor': operator.xor,
+    }
+
     @staticmethod
     def ror(val, shift, size):
         shift %= size
@@ -234,38 +373,9 @@ class ArithmeticIns:
         assert symval.size() == 8*size
         return z3.Concat(*reversed(tuple(subpart(symval, i*8, (i+1)*8) for i in range(size))))
 
-    ops = {
-        #'not': operator.not_,      # 按bits操作
-        #'lea': None,
-        #'ror': None,               # 循环右移
-        #'rol': None,
-        #'shr': operator.rshift,    # 逻辑右移
-        #'sar': None
-        #'shl': operator.lshift,
-        #'sal': operator.lshift,     # 算术左移
-        #'idiv': None,
-        #'div': None,
-        #'bswap': None,             # 按字节交换
-        #'addsd': None,             # addsd xmm0, xmm1 低 64 为double浮点数运算. sd: scale double, pd: packed double
-        #'subsd': None,             # 类似 addsd
-        #'pcmpeqb': None,           # xmm 指令集，按照字节比较，相等置目标字节为 FF，否则为 0
-        #'cmpxchg': None,
-        'add': operator.add,
-        'adc': operator.add,        # 加上 CF 标志位的加法
-        'sub': operator.sub,
-        'sbb': operator.sub,        # 减去 CF 标志位的减法，用于实现操作寄存器长度的减法操作. e.g. 32 模拟 64 位运算
-        'mul': operator.mul,
-        'imul': operator.mul,
-        'and': operator.and_,
-        'pand': operator.and_,      # MMX 指令
-        'or': operator.or_,
-        'por': operator.or_,
-        'xor': operator.xor,
-        'pxor': operator.xor,
-    }
-
     def __init__(self, addr, asm, size, offsets, values):
         self.addr = addr
+        self.name = asm.split()[0]
         self.asm = asm
         self.size = size
         self.offsets = offsets
@@ -274,7 +384,7 @@ class ArithmeticIns:
         self._expression = None
 
     def execute(self):
-        if self._result != None:
+        if self._result is not None:
             return self._result
         ins = self.asm.split()[0]
         values = self.values
@@ -312,23 +422,19 @@ class ArithmeticIns:
             assert 8 == self.size
             result = float_as_int(int_as_float(values[0]) - int_as_float(values[1]))
             debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
-        elif ins in ('pcmpeqb', 'pcmpeqw', 'pcmpeqd', 'pcmpgtb', 'pcmpgtw', 'pcmpgtd'):
-            result = 0x0
-            warn("XMM instruction {} isn't support".format(ins))
-            debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         elif ins in ArithmeticIns.ops:
             result = ArithmeticIns.ops[ins](values[0], values[1])
             if ins in ('pxor', 'pand', 'por'):
                 debug("size: {}, ins: {}, v0: {} v1: {} rst: {}".format(self.size, self.asm, values[0], values[1], result))
         else:
-            raise ValueError("Unspport instruction {}".format(self.asm))
+            raise InstructionErr("Unspport instruction {}".format(self.asm))
         # fixed size, and convert signed to unsigned for sub, sbb
-        self._result = result & ((1<<(8*self.size))-1)
+        self._result = result & ((1<<(8*self.size)) - 1)
         return self._result
 
     @property
     def expression(self):
-        assert self._expression != None
+        assert self._expression is not None
         return self._expression
 
     # 默认的 <, >, /, <<, >> 都是有符号操作，提供了 Uxx/Lxx 的操作默认都是有符号
@@ -379,16 +485,17 @@ class ArithmeticIns:
         elif ins in ArithmeticIns.ops:
             exp = ArithmeticIns.ops[ins](symvals[0], symvals[1])
         else:
-            raise ValueError("Unspport instruction {}".format(self.asm))
+            raise InstructionErr("Unspport instruction {}".format(self.asm))
         #self._expression = z3.simplify(exp)
         self._expression = exp
         return exp
 
 
+# NOTE 淘汰
 def is_arimetic(ins):
     return isinstance(ins, ArithmeticIns)
 
-
+# NOTE 淘汰
 def is_division(ins):
     divs = ('div', 'idiv')
     name = ins.asm.split()[0]
@@ -396,23 +503,36 @@ def is_division(ins):
 
 
 class CondJumpIns:
-    signed_ins = (
-        'jl', 'jnge',   # <
-        'jle', 'jng',   # <=
-        'jg',  'jnle',  # >
-        'jge', 'jnl',   # >=
+    signed_ins = {
+        'jl': COND_LT,  'jnge': COND_LT,  # <
+        'jle': COND_LE, 'jng': COND_LE,   # <=
+        'jg': COND_GT,  'jnle': COND_GT,  # >
+        'jge': COND_GE, 'jnl': COND_GE,   # >=
+    }
+    unsigned_ins = {
+        'jz': COND_EQ,  'je': COND_EQ,   # ==
+        'jnz': COND_NE, 'jne': COND_NE,  # !=
+        'jb': COND_LT,  'jnae': COND_LT, # <
+        'jbe': COND_LE, 'jna': COND_LE,  # <=
+        'ja': COND_GT,  'jnbe': COND_GT, # >
+        'jae': COND_GE, 'jnb': COND_GE,  # >=
+    }
+    unspport_ins = (
+        'js',   'jns',  # SF is set
+        'jp',   'jnp',  # PF is set
     )
-    unsigned_ins = (
-        'jz',   'je',   # ==
-        'jnz',  'jne',  # !=
-        'jb',   'jnae', # <
-        'jbe',  'jna',  # <=
-        'ja',   'jnbe', # >
-        'jae',  'jnb',  # >=
-    )
+
+    @staticmethod
+    def contains(ins_name):
+        return ins_name in CondJumpIns.signed_ins \
+                or ins_name in CondJumpIns.unsigned_ins \
+                or ins_name in CondJumpIns.unspport_ins
+
+
     def __init__(self, addr, asm):
         self.addr = addr
         self.asm = asm
+        self.name = asm.split()[0]
 
     @property
     def signed(self):
@@ -421,40 +541,27 @@ class CondJumpIns:
             return True
         if ins in CondJumpIns.unsigned_ins:
             return False
-        if ins in ('js', 'jns', 'jp', 'jnp'):
+        if ins in CondJumpIns.unspport_ins:
             warn("Ignore condition jump {}.".format(ins))
             return False
-        raise ValueError("Unspport instruction {}".format(ins))
+        raise InstructionErr("Unspport instruction {}".format(ins))
 
     @property
     def condition(self):
-        ins = self.asm.split()[0]
-        if ins in ('jz', 'je'):
-            return COND_EQ
-        if ins in ('jnz', 'jne'):
-            return COND_NE
-        if ins in ('jl', 'jnge', 'jb', 'jnae'):
-            return COND_LT
-        if ins in ('jle','jng', 'jbe', 'jna'):
-            return COND_LE
-        if ins in ('jg', 'jnle', 'ja', 'jnbe'):
-            return COND_GT
-        if ins in ('jge', 'jnl', 'jae', 'jnb'):
-            return COND_GE
-        if ins in ('js', 'jns', 'jp', 'jnp'):
-            warn("Ignore condition jump {}.".format(ins))
+        if self.name in CondJumpIns.unspport_ins:
+            warn("Ignore condition jump {}.".format(self.name))
             return COND_UNSPPORT
-        raise ValueError("Unspport instruction {}".format(ins))
+        if self.name in CondJumpIns.signed_ins:
+            return CondJumpIns.signed_ins[self.name]
+        if self.name in CondJumpIns.unsigned_ins:
+            return CondJumpIns.unsigned_ins[self.name]
+        raise InstructionErr("Unspport instruction {}".format(self.asm))
 
     def execute(self):
         raise ValueError("Condition Jump Instruction can't execute")
 
     def symbolize(self):
         raise ValueError("Condition Jump Instruction can't symbolize")
-
-
-def is_condjmp(ins):
-    return isinstance(ins, CondJumpIns)
 
 
 class CompareIns:
@@ -466,11 +573,16 @@ class CompareIns:
         COND_GT: ('>',  operator.gt),
         COND_GE: ('>=', operator.ge),
         COND_UNSPPORT: ('??', lambda a, b: True),
-        None: ('??', lambda a, b: True),
     }
+
+    @staticmethod
+    def contains(ins_name):
+        pass
+
     def __init__(self, addr, asm, size, offsets, values):
         self.addr = addr
         self.asm = asm if not asm.startswith('rep') else asm[4:]    # remove 'rep ' prefix
+        self.name = self.asm.split()[0]
         self.size = size
         self.offsets = offsets
         self.values = values
@@ -479,51 +591,47 @@ class CompareIns:
         self._result = None
         self._expression = None
 
-    def strcond(self):
-        if self.condition == None:
+    def _strcond(self):
+        if self.condition is None:
             warn("Compare doesn't set condition. (0x{:x} {})".format(self.addr, self.asm))
+            return '??'
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         return CompareIns.conds.get(self.condition)[0]
 
-    def guess_condition(self):
-        assert self.condition == None or self.condition == COND_UNSPPORT
+    def _guess_condition(self):
+        assert self.condition is None or self.condition == COND_UNSPPORT
         assert 2 == len(self.values)
-        assert self.signed != None
-        ins = self.asm.split()[0]
+        assert self.signed is not None
         size = 8*self.size
         values = self.values
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
-        if ins in ('cmp', 'cmpsb', 'cmpsw', 'cmpsd'):
+        if self.name in ('cmp', 'cmpsb', 'cmpsw', 'cmpsd'):
             if randint(0, 99) >= 50:
                 return COND_EQ if v0 == v1 else COND_NE
             else:
-                if v0 < v1:
-                    return COND_LE
-                if v0 > v1:
-                    return COND_GT
-                if v0 == v1:
-                    return COND_EQ
-        elif ins in ('test', 'cmpxchg'):
+                return COND_LT if v0 < v1 else \
+                       COND_GT if v0 > v1 else \
+                       COND_EQ
+        if self.name in ('test', 'cmpxchg'):
             return COND_EQ if v0 == v1 else COND_NE
-        raise ValueError("Unknow compare instruction {}".format(ins))
+        raise InstructionErr("Unknow compare instruction {}".format(self.asm))
 
     def execute(self):
         assert 2 == len(self.values)
-        if self._result != None:
+        if self._result is not None:
             return self._result
         values = self.values
         size = 8*self.size
-        if self.signed == None:
+        if self.signed is None:
             warn("Unknow sign, guess by operands")
             self.signed = guess_singed(values[0], size) or guess_singed(values[1], size)
-        if self.condition == None or self.condition == COND_UNSPPORT:
+        if self.condition is None or self.condition == COND_UNSPPORT:
             warn("Unknow condition, guess by operands");
-            self.condition = self.guess_condition()
+            self.condition = self._guess_condition()
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
-        ins = self.asm.split()[0]
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         self._result = CompareIns.conds[self.condition][1](v0, v1)
@@ -531,7 +639,7 @@ class CompareIns:
 
     @property
     def expression(self):
-        assert self._expression != None
+        assert self._expression is not None
         return self._expression
 
     def symbolize(self, symvals):
@@ -564,14 +672,10 @@ class JumpIns:
         raise ValueError("Jump Instruction can't execute")
 
     def expression(self):
-        pass
+        warn("Unimplement JumpIns' expression()")
 
     def symbolize(self, symvals):
-        pass
-
-
-def is_jump(ins):
-    return isinstance(ins, JumpIns)
+        warn("Unimplement JumpIns' symbolize()")
 
 
 def previous_compare(instructions, limit=5):
@@ -588,11 +692,14 @@ def parse_trace_file(fname):
     with open(fname, 'r') as tf:
         for trace in tf:
             ins = Instruction.from_trace(trace)
+            # splited SIMD instruction
+            if isinstance(ins, (tuple, list)):
+                instructions.extend(ins)
             # discard condtion jump
-            if is_condjmp(ins):
+            elif Instruction.is_condjmp(ins):
                 prevcmpidx = previous_compare(instructions)
                 if prevcmpidx == NONE_ORDER:
-                    warn("Single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
+                    warn("Discard single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
                 else:
                     instructions[prevcmpidx].condition = ins.condition
                     instructions[prevcmpidx].signed = ins.signed
@@ -687,7 +794,7 @@ def gather_length_field(instructions):
 def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=LOOPINS_MAX):
     cnts = [NONE_ORDER for _ in instructions]
     for i, ins in enumerate(instructions):
-        assert ins.depth != None and ins.depth_prev != None
+        assert ins.depth is not None and ins.depth_prev is not None
         addr = ins.addr
         addrcnt = len(addr2idxes[addr])
         if addrcnt <= loopinsmax or ins.depth <= loopinsmax:
@@ -763,9 +870,9 @@ def symbolize_value(value, offset, sign_extend=False):
             byte = z3.BitVec("b{}".format(off), 8)
             if sign_extend and i+1 < len_ and enable_sign_extend(value, offset, i):
                 byte = z3.SignExt(8*(len_ - i - 1), byte)
-                exp = z3.Concat(byte, exp) if exp != None else byte
+                exp = z3.Concat(byte, exp) if exp is not None else byte
                 return exp
-        exp = z3.Concat(byte, exp) if exp != None else byte
+        exp = z3.Concat(byte, exp) if exp is not None else byte
     return z3.simplify(exp)
     #return exp
 
@@ -815,7 +922,7 @@ def concolic_execute(instructions, seed):
         if is_compare(ins):
             prevpcidx = cmpgraph[i]
             exp = ins.symbolize(symvals)      if not ins.optimized else True
-            pc = path_contraintion[prevpcidx] if previdx != NONE_ORDER else []
+            pc = path_contraintion[prevpcidx] if prevpcidx != NONE_ORDER else []
             path_contraintion[i] = pc + [exp] if not ins.optimized else pc
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
             if not (ins.condition == COND_EQ and ins.execute() == True) and not ins.optimized:
@@ -834,7 +941,10 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
-        elif is_jump(ins):
+                if Instruction.is_splited_simd(ins):
+                    path_contraintion[i] = pc + [z3.Not(exp)]
+                    info(path_contraintion[i])
+        elif Instruction.is_jump(ins):
             pass
         elif is_arimetic(ins):
             if is_division(ins) and not ins.optimized:
@@ -858,9 +968,13 @@ def concolic_execute(instructions, seed):
             # symbolize this expression
             ins.symbolize(symvals)
         else:
-            raise ValueError("Unspport instruction {}".format(ins.asm))
+            raise InstructionErr("Unspport instruction {}".format(ins.asm))
 
     return list(ret)
+
+
+def print_instruction(instructions):
+    pass
 
 
 def plot_datagraph(instructions, datagraph, outstrm=sys.stdout):

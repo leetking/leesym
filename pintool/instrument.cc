@@ -367,12 +367,13 @@ void taintRegister(REG reg, UINT64 const* offset, UINT32 size)
     Register* r = getTaintRegister(reg);
     UINT32 shift = get_reg_shift(reg);
     for (UINT32 i = 0; i < size; ++i) {
+        UINT32 ri = shift+i;
         if (offset[i] != INVALID_OFFSET) {
-            set_bitmap(r->tainted, shift+i);
-            r->offset[shift+i] = offset[i];
+            set_bitmap(r->tainted, ri);
+            r->offset[ri] = offset[i];
         } else {
-            clr_bitmap(r->tainted, shift+i);
-            r->offset[shift+i] = INVALID_OFFSET;
+            clr_bitmap(r->tainted, ri);
+            r->offset[ri] = INVALID_OFFSET;
         }
     }
 }
