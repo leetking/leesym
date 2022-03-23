@@ -109,7 +109,7 @@ def subpart(bitvec, start, end):
     return z3.Extract(hi, lo, bitvec)
 
 
-COND_UNSPPORT = 0xff  # Unspport now, e.g. js
+COND_UNSPPORT = 0xff  # Unspport now, e.g. jp
 COND_EQ = 0x1   # ==
 COND_NE = 0x2   # !=
 COND_LT = 0x3   # <
@@ -286,7 +286,10 @@ class Instruction:
         name = ins.name
         if is_compare(ins):
             name = ins._strcond()
-        values = ", ".join("{}".format(v) for v in ins.values)
+        if is_compare(ins) and ins.signed:
+            values = ", ".join("{}".format(signed(v, 8*ins.size)) for v in ins.values)
+        else:
+            values = ", ".join("{}".format(v) for v in ins.values)
         return f"{name} {values}{result}"
 
 
@@ -505,9 +508,11 @@ def is_division(ins):
 class CondJumpIns:
     signed_ins = {
         'jl': COND_LT,  'jnge': COND_LT,  # <
+        'js': COND_LT,                    # < 0, SF is set
         'jle': COND_LE, 'jng': COND_LE,   # <=
         'jg': COND_GT,  'jnle': COND_GT,  # >
         'jge': COND_GE, 'jnl': COND_GE,   # >=
+        'jns': COND_GE,                   # >= 0, SF isnt set
     }
     unsigned_ins = {
         'jz': COND_EQ,  'je': COND_EQ,   # ==
@@ -518,7 +523,6 @@ class CondJumpIns:
         'jae': COND_GE, 'jnb': COND_GE,  # >=
     }
     unspport_ins = (
-        'js',   'jns',  # SF is set
         'jp',   'jnp',  # PF is set
     )
 
@@ -536,25 +540,24 @@ class CondJumpIns:
 
     @property
     def signed(self):
-        ins = self.asm.split()[0]
-        if ins in CondJumpIns.signed_ins:
+        if self.name in CondJumpIns.signed_ins:
             return True
-        if ins in CondJumpIns.unsigned_ins:
+        if self.name in CondJumpIns.unsigned_ins:
             return False
-        if ins in CondJumpIns.unspport_ins:
-            warn("Ignore condition jump {}.".format(ins))
+        if self.name in CondJumpIns.unspport_ins:
+            warn("Ignore condition jump {}.".format(self.name))
             return False
         raise InstructionErr("Unspport instruction {}".format(ins))
 
     @property
     def condition(self):
-        if self.name in CondJumpIns.unspport_ins:
-            warn("Ignore condition jump {}.".format(self.name))
-            return COND_UNSPPORT
         if self.name in CondJumpIns.signed_ins:
             return CondJumpIns.signed_ins[self.name]
         if self.name in CondJumpIns.unsigned_ins:
             return CondJumpIns.unsigned_ins[self.name]
+        if self.name in CondJumpIns.unspport_ins:
+            warn("Ignore condition jump {}.".format(self.name))
+            return COND_UNSPPORT
         raise InstructionErr("Unspport instruction {}".format(self.asm))
 
     def execute(self):
@@ -698,11 +701,11 @@ def parse_trace_file(fname):
             # discard condtion jump
             elif Instruction.is_condjmp(ins):
                 prevcmpidx = previous_compare(instructions)
-                if prevcmpidx == NONE_ORDER:
-                    warn("Discard single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
-                else:
+                if prevcmpidx != NONE_ORDER and instructions[prevcmpidx].condition is None:
                     instructions[prevcmpidx].condition = ins.condition
                     instructions[prevcmpidx].signed = ins.signed
+                else:
+                    warn("Discard single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
             else:
                 instructions.append(ins)
     return instructions
@@ -747,7 +750,7 @@ def build_datagraph(instructions, offset2idxes):
             sameoffidxes = (offset2idxes[off] for off in offset if off != NONE_OFFSET)
             previdx = previous_instruction(datagraph, instructions, i, offset, value, sameoffidxes)
             datagraph[i].append(previdx)
-            # 构建深度图
+            # 构建指令深度图
             if previdx != NONE_ORDER:
                 previns = instructions[previdx]
                 if previns.depth + 1 > ins.depth:
@@ -790,17 +793,33 @@ def gather_length_field(instructions):
     pass
 
 
-# TODO，对循环的最后一次实行符号化，以求边界
-def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=LOOPINS_MAX):
+# TODO 通过实验 hash 函数来测试此函数
+def optimize_loop(instructions, cmpgraph, addr2idxes, loopinsmax=LOOPINS_MAX):
+    cmpdepth = 0
     cnts = [NONE_ORDER for _ in instructions]
     for i, ins in enumerate(instructions):
         assert ins.depth is not None and ins.depth_prev is not None
         addr = ins.addr
         addrcnt = len(addr2idxes[addr])
+        # 连续出现多次相同的比较指令则忽略
+        if is_compare(ins):
+            if Instruction.is_splited_simd(ins):
+                ins.optimized = False
+                continue
+            # not splited simd compare
+            ins.optimized = (cmpdepth > loopinsmax)
+            k = cmpgraph[i]
+            cmpdepth += 1
+            if k == NONE_ORDER or addr != instructions[k].addr:
+                cmpdepth = 0
+                # not optimized the upper bound for loop
+                if k != NONE_ORDER:
+                    instructions[k].optimized = False
+            continue
         if addrcnt <= loopinsmax or ins.depth <= loopinsmax:
             ins.optimized = False
             continue
-        # maybe need optimize
+        # maybe need optimized
         k = ins.depth_prev
         if cnts[k] != NONE_ORDER:
             cnts[i] = cnts[k] + 1
@@ -812,7 +831,7 @@ def optimize_instruction(instructions, datagraph, addr2idxes, loopinsmax=LOOPINS
                     c += 1
                 k = instructions[k].depth_prev
             cnts[i] = c
-        ins.optimized = True if cnts[i] > loopinsmax else False
+        ins.optimized = (cnts[i] > loopinsmax)
 
 
 def build_cmpgraph(instructions):
@@ -887,8 +906,8 @@ def concolic_execute(instructions, seed):
     info("buiding datagraph ...")
     datagraph = build_datagraph(instructions, offset2idxes)
     cmpgraph = build_cmpgraph(instructions)
-    # 优化循环指令
-    optimize_instruction(instructions, datagraph, addr2idxes)
+    # 优化循环
+    optimize_loop(instructions, cmpgraph, addr2idxes)
     z3.set_param(timeout=30*1000)        # 30s (unit: ms) for a solver
     #z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果，因为不支持
     ret = set()
@@ -943,13 +962,12 @@ def concolic_execute(instructions, seed):
                     raise ValueError("Unknow result solver returned")
                 if Instruction.is_splited_simd(ins):
                     path_contraintion[i] = pc + [z3.Not(exp)]
-                    info(path_contraintion[i])
         elif Instruction.is_jump(ins):
             pass
         elif is_arimetic(ins):
             if is_division(ins) and not ins.optimized:
                 prevpcidx = cmpgraph[i]
-                pc = path_contraintion[prevpcidx] if previdx != NONE_ORDER else []
+                pc = path_contraintion[prevpcidx] if prevpcidx != NONE_ORDER else []
                 info("Now begin checking div sat, with exps:", len(pc)+1)
                 solver = z3.Solver()
                 solver.add(0 == symvals[1], *pc)
@@ -1095,12 +1113,11 @@ def main():
         server_mode()
         return 0
 
-    # plot data graph
+    # plot data graph from trace file
     if args.dot_file and args.cmd:
         instructions = parse_trace_file(args.cmd[0])
         offset2idxes = groupby_offset(instructions)
         datagraph = build_datagraph(instructions, offset2idxes)
-        detect_multibytes_dependent(instructions, datagraph)
         plot_datagraph(instructions, datagraph, args.dot_file)
         return 0
 
@@ -1108,7 +1125,7 @@ def main():
         parser.print_usage()
         return 101
 
-    # trace file
+    # trace file + concolic execution
     if args.trace_file:
         if args.detect_struct:
             pass
@@ -1118,7 +1135,7 @@ def main():
             result = concolic_execute(instructions, seed)
         return 0
 
-    # taint + concolic exe
+    # taint + concolic execution
     if args.output_dir and args.cmd:
         if not leetaint(args.seed_file, args.output_dir, args.cmd):
             print("leetaint fails")
