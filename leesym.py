@@ -180,6 +180,13 @@ class Instruction:
         pass
 
     @staticmethod
+    def is_hard_compare(ins):
+        if not is_compare(ins):
+            return False
+        return ins.execute() and ins.condition == COND_EQ \
+            or not ins.execute() and ins.condition == COND_NE
+
+    @staticmethod
     def is_arimetic(ins):
         if not isinstance(ins, (ArithmeticIns, str)):
             return False
@@ -596,7 +603,7 @@ class CompareIns:
 
     def _strcond(self):
         if self.condition is None:
-            warn("Compare doesn't set condition. (0x{:x} {})".format(self.addr, self.asm))
+            warn("Compare doesn't set condition. (0x{:x}: {})".format(self.addr, self.name))
             return '??'
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
@@ -628,10 +635,10 @@ class CompareIns:
         values = self.values
         size = 8*self.size
         if self.signed is None:
-            warn("Unknow sign, guess by operands")
+            warn("Unknow sign, guess by operands (0x{:x}: {})".format(self.addr, self.name))
             self.signed = guess_singed(values[0], size) or guess_singed(values[1], size)
         if self.condition is None or self.condition == COND_UNSPPORT:
-            warn("Unknow condition, guess by operands");
+            warn("Unknow condition, guess by operands (0x{:x}: {})".format(self.addr, self.name))
             self.condition = self._guess_condition()
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
@@ -900,6 +907,14 @@ def is_offset_empty(offsets):
     return not offsets or all(off == NONE_OFFSET for off in offsets)
 
 
+def sort_model(model):
+    rst = str(model)
+    pat = r'b(\d+)\s*=\s*(\d+)'
+    repls = [(int(s), int(v)) for s, v in re.findall(pat, rst)]
+    repls.sort(key=operator.itemgetter(0))
+    return '[' + ', '.join("b{}={}".format(s, v) for s, v in repls) + ']'
+
+
 def concolic_execute(instructions, seed):
     offset2idxes = groupby_offset(instructions)
     addr2idxes = groupby_addr(instructions)
@@ -911,7 +926,8 @@ def concolic_execute(instructions, seed):
     z3.set_param(timeout=30*1000)        # 30s (unit: ms) for a solver
     #z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果，因为不支持
     ret = set()
-    path_contraintion = {}
+    pccnt = 0
+    solver = z3.Solver()
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
         # for every operand
@@ -941,48 +957,52 @@ def concolic_execute(instructions, seed):
         if is_compare(ins):
             prevpcidx = cmpgraph[i]
             exp = ins.symbolize(symvals)      if not ins.optimized else True
-            pc = path_contraintion[prevpcidx] if prevpcidx != NONE_ORDER else []
-            path_contraintion[i] = pc + [exp] if not ins.optimized else pc
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
-            if not (ins.condition == COND_EQ and ins.execute() == True) and not ins.optimized:
-                info("Now begin checking compare sat, with exps:", len(pc)+1)
-                solver = z3.Solver()
-                solver.add(z3.Not(exp), *pc)
+            if not ins.optimized and not ((ins.execute() and ins.condition == COND_EQ) \
+                                   or (not ins.execute() and ins.condition == COND_NE)):
+                info("Now begin checking compare sat, with exps:", pccnt+1)
+                solver.push()
+                solver.add(z3.Not(exp))
                 rst = solver.check()
                 if rst == z3.sat:
                     model = solver.model()
-                    if len(model):
-                        ret.add(str(model))
-                    debug(model)
+                    if len(model):  # TODO ignore empty answer
+                        ret.add(sort_model(model))
+                    debug(sort_model(model))
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
+                solver.pop()
                 if Instruction.is_splited_simd(ins):
-                    path_contraintion[i] = pc + [z3.Not(exp)]
+                    solver.add(z3.Not(exp))
+                    pccnt += 1
+                else:
+                    solver.reset()
+                    pccnt = 0
         elif Instruction.is_jump(ins):
             pass
         elif is_arimetic(ins):
             if is_division(ins) and not ins.optimized:
                 prevpcidx = cmpgraph[i]
-                pc = path_contraintion[prevpcidx] if prevpcidx != NONE_ORDER else []
-                info("Now begin checking div sat, with exps:", len(pc)+1)
-                solver = z3.Solver()
-                solver.add(0 == symvals[1], *pc)
+                info("Now begin checking div sat, with exps:", pccnt+1)
+                solver.push()
+                solver.add(0 == symvals[1])
                 rst = solver.check()
                 if rst == z3.sat:
                     model = solver.model()
                     if len(model):
-                        ret.add(str(model))
-                    debug(model)
+                        ret.add(sort_model(model))
+                    debug(sort_model(model))
                 elif rst == z3.unsat:
                     info("Unsat. {}: {}".format(i, Instruction.beautify(ins)))
                 elif rst == z3.unknown:
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
+                solver.pop()
             # symbolize this expression
             ins.symbolize(symvals)
         else:
@@ -1034,7 +1054,7 @@ def save_all_testcases(result, seed, outdir):
         input_ = bytearray(seed)
         repls = [(int(s), int(v)) for s, v in re.findall(pat, rst)]
         repls.sort(key=operator.itemgetter(0))
-        name = '#'.join("{:02x}@b{}".format(v, s) for s, v in repls)
+        name = ','.join("b{}={:02x}".format(s, v) for s, v in repls)
         name = name[:name_len]  # 防止操作操作系统最大文件长度
         for s, v in repls:
             assert (v & (~0xff)) == 0x0

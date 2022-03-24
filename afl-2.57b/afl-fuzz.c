@@ -5312,7 +5312,7 @@ static u8 fuzz_one(char** argv) {
   stage_name = "leesym fuzzing every input";
   stage_short = "sym_fz";
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-      SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
+      //SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
       off_t fsize = 0;
       u8 *input = readfile(inputs[stage_cur], &fsize);
       struct queue_entry *old_queue_top = queue_top;
