@@ -74,6 +74,9 @@ int main(int argc, char *argv[])
     // 核心插桩，指令级别插桩
     INS_AddInstrumentFunction(Instruction, nullptr);
 
+    // 对函数插桩
+    //RTN_AddInstrumentFunction(Routine, nullptr);
+
     PIN_AddFiniFunction(Fini, nullptr);
 
     // Never returns

@@ -353,7 +353,7 @@ bool isRegisterTainted(REG reg)
     Register* r = getTaintRegister(reg);
     UINT32 size = REG_Size(reg);
     BUG_ON(size > 64 && "Unsupport register size > 64");
-    UINT64 mask = (size == 64)? (~0x0): ((0x1<<size)-1);
+    UINT64 mask = (size == 64)? (~0x0ULL): ((0x1ULL<<size)-1);
     mask <<= get_reg_shift(reg);
     return r->tainted & mask;
 }
@@ -385,7 +385,7 @@ void clearRegister(REG reg, UINT32 size)
     Register* r = getTaintRegister(reg);
     BUG_ON(size > REG_Size(reg));
     UINT32 shift = get_reg_shift(reg);
-    UINT64 mask = (size==64)? (~0): ((1<<size)-1);
+    UINT64 mask = (size==64)? (~0ULL): ((1ULL<<size)-1);
     mask <<= shift;
     mask = ~mask;       // e.g. 0b11111101
     r->tainted &= mask;

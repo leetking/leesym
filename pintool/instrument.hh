@@ -28,9 +28,9 @@ enum {
 #define REGISTER_INVALID REG_LAST
 #define REGISTER_MAX     (REG_MACHINE_LAST+1)
 
-#define get_bitmap(map, offset) (map & (0x1UL<<(offset)))
-#define set_bitmap(map, offset) (map |= (0x1UL<<(offset)))
-#define clr_bitmap(map, offset) (map &= (~(0x1UL<<(offset))))
+#define get_bitmap(map, offset) (map & (0x1ULL<<(offset)))
+#define set_bitmap(map, offset) (map |= (0x1ULL<<(offset)))
+#define clr_bitmap(map, offset) (map &= (~(0x1ULL<<(offset))))
 //#define merge_bitmap(map1, map2) ((map1) |= (map2))
 
 // 记录寄存器哪些字节被污染, 实际寄存器最大不超过 64 字节吧, 通常也就 8 字节大

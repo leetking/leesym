@@ -154,10 +154,6 @@ VOID taintRegMem(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr, R
         if (b)
             offset[i] = b->offset;
     }
-    //if (0 == strncmp(insDis.c_str(), "movdqa", 6)) {
-    //    UINT8 regval[REGISTER_WIDTH] = "";
-    //    tracelog_regmem(insAddr, insDis, reg, regval, addr, (UINT8*)addr, size);
-    //}
     taintRegister(reg, offset, size);
 }
 
@@ -360,14 +356,14 @@ void trace_vpcmp_rrr(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG ds
     clearRegister(dst, REG_Size(dst));
 }
 
-void trace_vpcmp_rrm(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src1, ADDRINT addr, UINT32 memsize)
+void trace_vpcmp_rrm(ADDRINT insaddr, string const& disasm, CONTEXT* ctx, REG dst, REG src, ADDRINT addr, UINT32 memsize)
 {
     MemBlock mem;
     initMemTaint(&mem, addr, memsize);
-    if (isRegisterTainted(src1) || mem.tainted) {
+    if (isRegisterTainted(src) || mem.tainted) {
         UINT8 srcval[REGISTER_WIDTH];
-        PIN_GetContextRegval(ctx, src1, srcval);
-        tracelog_regmem(insaddr, disasm, src1, srcval, addr, (UINT8*)addr, memsize);
+        PIN_GetContextRegval(ctx, src, srcval);
+        tracelog_regmem(insaddr, disasm, src, srcval, addr, (UINT8*)addr, memsize);
     }
     clearRegister(dst, REG_Size(dst));
 }

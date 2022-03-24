@@ -37,10 +37,10 @@ VOID Instruction(INS ins, VOID *v)
 
 #ifdef SHOW_INS
     INS_InsertCall(
-                ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
-                IARG_INSADDR(ins),
-                IARG_DISASM(ins),
-                IARG_END);
+            ins, IPOINT_BEFORE, (AFUNPTR)print_instruction,
+            IARG_INSADDR(ins),
+            IARG_DISASM(ins),
+            IARG_END);
 #endif // SHOW_INS
 
     xed_iclass_enum_t ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
@@ -1169,8 +1169,8 @@ VOID Instruction(INS ins, VOID *v)
                     IARG_PTR, new string(INS_Disassemble(ins)),
                     IARG_UINT32, INS_OperandCount(ins),
                     IARG_MEMORYREAD_EA,
-                    IARG_UINT32, INS_RegW(ins, OP_0),
-                    IARG_UINT32, INS_MemoryReadSize(ins),
+                    IARG_REG(ins, OP_0),
+                    IARG_MEMORYREAD_SIZE,
                     IARG_END);
             }
             // mem, reg
