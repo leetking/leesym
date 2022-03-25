@@ -9,7 +9,7 @@ import operator
 import argparse
 import itertools
 from random import randint
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from bisect import bisect_left
 
 import z3
@@ -926,8 +926,8 @@ def concolic_execute(instructions, seed):
     z3.set_param(timeout=30*1000)        # 30s (unit: ms) for a solver
     #z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果，因为不支持
     ret = set()
-    pccnt = 0
-    solver = z3.Solver()
+    recent_contraint = deque(maxlen=15)
+    simd_contraint = []
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
         # for every operand
@@ -955,13 +955,14 @@ def concolic_execute(instructions, seed):
             symvals[k] = symval
 
         if is_compare(ins):
-            prevpcidx = cmpgraph[i]
             exp = ins.symbolize(symvals)      if not ins.optimized else True
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
             if not ins.optimized and not ((ins.execute() and ins.condition == COND_EQ) \
                                    or (not ins.execute() and ins.condition == COND_NE)):
-                info("Now begin checking compare sat, with exps:", pccnt+1)
-                solver.push()
+                info("Now begin checking compare sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
+                solver = z3.Solver()
+                solver.add(*recent_contraint)
+                solver.add(*simd_contraint)
                 solver.add(z3.Not(exp))
                 rst = solver.check()
                 if rst == z3.sat:
@@ -975,20 +976,19 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
-                solver.pop()
                 if Instruction.is_splited_simd(ins):
-                    solver.add(z3.Not(exp))
-                    pccnt += 1
+                    simd_contraint.append(z3.Not(exp))
                 else:
-                    solver.reset()
-                    pccnt = 0
+                    recent_contraint.append(exp)
+                    simd_contraint = []
         elif Instruction.is_jump(ins):
             pass
         elif is_arimetic(ins):
             if is_division(ins) and not ins.optimized:
-                prevpcidx = cmpgraph[i]
-                info("Now begin checking div sat, with exps:", pccnt+1)
-                solver.push()
+                info("Now begin checking div sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
+                solver = z3.Solver()
+                solver.add(*recent_contraint)
+                solver.add(*simd_contraint)
                 solver.add(0 == symvals[1])
                 rst = solver.check()
                 if rst == z3.sat:
@@ -1002,7 +1002,6 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
-                solver.pop()
             # symbolize this expression
             ins.symbolize(symvals)
         else:
@@ -1134,8 +1133,8 @@ def main():
         return 0
 
     # plot data graph from trace file
-    if args.dot_file and args.cmd:
-        instructions = parse_trace_file(args.cmd[0])
+    if args.dot_file and args.trace_file:
+        instructions = parse_trace_file(args.trace_file)
         offset2idxes = groupby_offset(instructions)
         datagraph = build_datagraph(instructions, offset2idxes)
         plot_datagraph(instructions, datagraph, args.dot_file)
