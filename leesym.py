@@ -16,8 +16,6 @@ import z3
 
 from leetaint import leetaint
 
-be_quiet = False
-enable_debug = True
 OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
 LOOPINS_MAX = 16             # 目前调小这个以便处理循环中的校验和算法 TODO 后续加入校验判断识别，以跳过运算
                              # 从 8 调整到 16
@@ -25,6 +23,18 @@ CKSUM_MIN_BYTES = 64         # 一个操作数依赖多个字节认为是校验�
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
+
+COND_UNSPPORT = 0xff  # Unspport now, e.g. jp
+COND_EQ = 0x1   # ==
+COND_NE = 0x2   # !=
+COND_LT = 0x3   # <
+COND_LE = 0x4   # <=
+COND_GT = 0x5   # >
+COND_GE = 0x6   # >=
+
+
+be_quiet = False
+enable_debug = True
 
 parser = argparse.ArgumentParser(prog='leesym', description='concolic executtion to get new seeds')
 parser.add_argument('-s', '--server',
@@ -108,15 +118,6 @@ def subpart(bitvec, start, end):
     # [hi, lo]
     return z3.Extract(hi, lo, bitvec)
 
-
-COND_UNSPPORT = 0xff  # Unspport now, e.g. jp
-COND_EQ = 0x1   # ==
-COND_NE = 0x2   # !=
-COND_LT = 0x3   # <
-COND_LE = 0x4   # <=
-COND_GT = 0x5   # >
-COND_GE = 0x6   # >=
-
 class InstructionErr(Exception):
     pass
 
@@ -145,6 +146,7 @@ class Operand:
     def subpart(self, start, end):
         assert 0 <= start < end < self.size
         return Operand(self.offset[start:end], get_bytes(self.value, start, end), end-start)
+
 
 class Instruction:
     width_suffix = {'b': 1, 'w': 2, 'd': 4, 'q': 8,}
@@ -177,11 +179,17 @@ class Instruction:
 
     @staticmethod
     def is_compare(ins):
-        pass
+        if not isinstance(ins, (CompareIns, str)):
+            return False
+        if isinstance(ins, CompareIns):
+            return True
+        return ins in Instruction.pcmpeq_ins \
+                or ins in Instruction.pcmpgt_ins \
+                or CompareIns.contains(ins)
 
     @staticmethod
     def is_hard_compare(ins):
-        if not is_compare(ins):
+        if not Instruction.is_compare(ins):
             return False
         return ins.execute() and ins.condition == COND_EQ \
             or not ins.execute() and ins.condition == COND_NE
@@ -234,7 +242,7 @@ class Instruction:
             subvalues = tuple(get_bytes(val, i, i+width) for val in values)
             ins = Instruction._classify(addr, asm, width, suboffsets, subvalues)
             ins.simd = True
-            if is_compare(ins):
+            if Instruction.is_compare(ins):
                 ins.condition = cond
             ret.append(ins)
         return ret
@@ -288,12 +296,12 @@ class Instruction:
     @staticmethod
     def beautify(ins):
         result = ""
-        if is_arimetic(ins):
+        if Instruction.is_arimetic(ins):
             result = " => {}".format(ins.execute())
         name = ins.name
-        if is_compare(ins):
+        if Instruction.is_compare(ins):
             name = ins._strcond()
-        if is_compare(ins) and ins.signed:
+        if Instruction.is_compare(ins) and ins.signed:
             values = ", ".join("{}".format(signed(v, 8*ins.size)) for v in ins.values)
         else:
             values = ", ".join("{}".format(v) for v in ins.values)
@@ -303,7 +311,7 @@ class Instruction:
 class ArithmeticIns:
     unary_ins = {
         # name: concret evaluate, symbolic evaluate
-        'not': (operator.not_, operator.not_),
+        'not': (operator.not_, operator.not_),  # 按 bits 取反
     }
     binary_ins = {
         'add': (),
@@ -345,6 +353,12 @@ class ArithmeticIns:
         'xor': operator.xor,
         'pxor': operator.xor,
     }
+
+    @staticmethod
+    def contains(ins):
+        return ins in ArithmeticIns.unary_ins \
+                or ins in ArithmeticIns.binary_ins \
+                or in in ArithmeticIns.multi_ins
 
     @staticmethod
     def ror(val, shift, size):
@@ -444,6 +458,7 @@ class ArithmeticIns:
 
     @property
     def expression(self):
+        """call after symbolize()"""
         assert self._expression is not None
         return self._expression
 
@@ -499,17 +514,6 @@ class ArithmeticIns:
         #self._expression = z3.simplify(exp)
         self._expression = exp
         return exp
-
-
-# NOTE 淘汰
-def is_arimetic(ins):
-    return isinstance(ins, ArithmeticIns)
-
-# NOTE 淘汰
-def is_division(ins):
-    divs = ('div', 'idiv')
-    name = ins.asm.split()[0]
-    return name in divs
 
 
 class CondJumpIns:
@@ -585,9 +589,13 @@ class CompareIns:
         COND_UNSPPORT: ('??', lambda a, b: True),
     }
 
+    cmpeq_ins = ('test', 'cmpxchg')
+    cmp_ins = ('cmp', 'cmpsb', 'cmpsw', 'cmpsd')
+
     @staticmethod
     def contains(ins_name):
-        pass
+        return ins in CompareIns.cmpeq_ins \
+                or ins in CompareIns.cmp_ins
 
     def __init__(self, addr, asm, size, offsets, values):
         self.addr = addr
@@ -617,14 +625,14 @@ class CompareIns:
         values = self.values
         v0 = signed(values[0], size) if self.signed else values[0]
         v1 = signed(values[1], size) if self.signed else values[1]
-        if self.name in ('cmp', 'cmpsb', 'cmpsw', 'cmpsd'):
+        if self.name in CompareIns.cmp_ins:
             if randint(0, 99) >= 50:
                 return COND_EQ if v0 == v1 else COND_NE
             else:
                 return COND_LT if v0 < v1 else \
                        COND_GT if v0 > v1 else \
                        COND_EQ
-        if self.name in ('test', 'cmpxchg'):
+        if self.name in CompareIns.cmpeq_ins:
             return COND_EQ if v0 == v1 else COND_NE
         raise InstructionErr("Unknow compare instruction {}".format(self.asm))
 
@@ -664,10 +672,6 @@ class CompareIns:
         return exp
 
 
-def is_compare(ins):
-    return isinstance(ins, CompareIns)
-
-
 class JumpIns:
     def __init__(self, addr, asm, size, result, offsets, values):
         self.addr = addr
@@ -691,7 +695,7 @@ class JumpIns:
 def previous_compare(instructions, limit=5):
     len_ = len(instructions)
     for i in range(-1, max(-limit, -len_)-1, -1):
-        if is_compare(instructions[i]):
+        if Instruction.is_compare(instructions[i]):
             return len_ + i
     return NONE_ORDER
 
@@ -733,7 +737,7 @@ def previous_instruction(datagraph, instructions, idx, offset, value, sameoffidx
         while i > end and idxes[i-1] > previdx:
             i -= 1
             ins = instructions[idxes[i]]
-            if is_arimetic(ins):
+            if Instruction.is_arimetic(ins):
                 result = ins.execute()
                 if value == result:
                     previdx = idxes[i]
@@ -780,7 +784,7 @@ def detect_multibytes_dependent(instructions, datagraph):
                 ins.multibytes[k] = operand_bytes
             else:
                 ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
-        if is_compare(ins):
+        if Instruction.is_compare(ins):
             pass
 
 
@@ -809,7 +813,7 @@ def optimize_loop(instructions, cmpgraph, addr2idxes, loopinsmax=LOOPINS_MAX):
         addr = ins.addr
         addrcnt = len(addr2idxes[addr])
         # 连续出现多次相同的比较指令则忽略
-        if is_compare(ins):
+        if Instruction.is_compare(ins):
             if Instruction.is_splited_simd(ins):
                 ins.optimized = False
                 continue
@@ -846,7 +850,7 @@ def build_cmpgraph(instructions):
     prev = NONE_ORDER
     for i, ins in enumerate(instructions):
         graph[i] = prev
-        if is_compare(ins):
+        if Instruction.is_compare(ins):
             prev = i
     return graph
 
@@ -954,7 +958,7 @@ def concolic_execute(instructions, seed):
                 symval = z3.BitVecVal(value, 8*ins.size)
             symvals[k] = symval
 
-        if is_compare(ins):
+        if Instruction.is_compare(ins):
             exp = ins.symbolize(symvals)      if not ins.optimized else True
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
             if not ins.optimized and not ((ins.execute() and ins.condition == COND_EQ) \
@@ -983,8 +987,8 @@ def concolic_execute(instructions, seed):
                     simd_contraint = []
         elif Instruction.is_jump(ins):
             pass
-        elif is_arimetic(ins):
-            if is_division(ins) and not ins.optimized:
+        elif Instruction.is_arimetic(ins):
+            if Instruction.is_division(ins) and not ins.optimized:
                 info("Now begin checking div sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
                 solver = z3.Solver()
                 solver.add(*recent_contraint)
