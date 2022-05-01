@@ -3,7 +3,6 @@
 import os
 import re
 import sys
-import heapq
 import struct
 import operator
 import argparse
@@ -98,7 +97,7 @@ def unsigned(iv, size):
     return iv + (1<<size)
 
 
-def guess_singed(uv, size):
+def guess_signed(uv, size):
     # 0xffff as unsigned
     return (uv & (1<<(size-1))) and (uv != ((1<<size)-1))
 
@@ -192,8 +191,10 @@ class Instruction:
     def is_hard_compare(ins):
         if not Instruction.is_compare(ins):
             return False
-        return ins.execute() and ins.condition == COND_EQ \
-            or not ins.execute() and ins.condition == COND_NE
+        # 当前数据满足相等条件，或不满足不等条件
+        easy = not ins.execute() and ins.condition == COND_NE \
+               or ins.execute() and ins.condition == COND_EQ
+        return not easy
 
     @staticmethod
     def is_arimetic(ins):
@@ -216,7 +217,7 @@ class Instruction:
 
     @staticmethod
     def is_splited_simd(ins):
-        return hasattr(ins, 'simd') and ins.simd == True
+        return getattr(ins, 'simd', False)
 
     @staticmethod
     def is_division(ins):
@@ -605,23 +606,39 @@ class CompareIns:
         self.size = size
         self.offsets = offsets
         self.values = values
-        self.condition = None
-        self.signed = None
+        self._signed = None
+        self._condition = None
         self._result = None
         self._expression = None
 
     def _strcond(self):
-        if self.condition is None:
-            warn("Compare doesn't set condition. (0x{:x}: {})".format(self.addr, self.name))
-            return '??'
-        if self.condition not in CompareIns.conds:
-            raise ValueError("Unexpected condition in CompareIns")
         return CompareIns.conds.get(self.condition)[0]
 
+    def setted_signed(self):
+        return getattr(self, '_setted_signed', False)
+
+    @property
+    def signed(self):
+        if self._signed is None:
+            warn("Unknow sign, guess by operands (0x{:x}: {})".format(self.addr, self.name))
+            size = 8 * self.size
+            self._signed = any(guess_signed(v, size) for v in self.values)
+        return self._signed
+
+    @signed.setter
+    def signed(self, signed: bool):
+        """signed 只能设置一次"""
+        if self.setted_signed():
+            return
+        self._signed = signed
+        self._setted_signed = True
+
+    def setted_condition(self):
+        return getattr(self, '_setted_condition', False)
+
     def _guess_condition(self):
-        assert self.condition is None or self.condition == COND_UNSPPORT
+        warn("Unknow condition, guess by operands (0x{:x}: {})".format(self.addr, self.name))
         assert 2 == len(self.values)
-        assert self.signed is not None
         size = 8*self.size
         values = self.values
         v0 = signed(values[0], size) if self.signed else values[0]
@@ -637,22 +654,30 @@ class CompareIns:
             return COND_EQ if v0 == v1 else COND_NE
         raise InstructionErr("Unknow compare instruction {}".format(self.asm))
 
+    @property
+    def condition(self):
+        if self._condition is None or self._condition == COND_UNSPPORT:
+            self._condition = self._guess_condition()
+        return self._condition
+
+    @condition.setter
+    def condition(self, cond):
+        """condition 只能设置一次"""
+        if self.setted_condition():
+            return
+        self._condition = cond
+        self._setted_condition = True
+
     def execute(self):
-        assert 2 == len(self.values)
         if self._result is not None:
             return self._result
-        values = self.values
-        size = 8*self.size
-        if self.signed is None:
-            warn("Unknow sign, guess by operands (0x{:x}: {})".format(self.addr, self.name))
-            self.signed = guess_singed(values[0], size) or guess_singed(values[1], size)
-        if self.condition is None or self.condition == COND_UNSPPORT:
-            warn("Unknow condition, guess by operands (0x{:x}: {})".format(self.addr, self.name))
-            self.condition = self._guess_condition()
-        v0 = signed(values[0], size) if self.signed else values[0]
-        v1 = signed(values[1], size) if self.signed else values[1]
+        assert 2 == len(self.values)
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
+        values = self.values
+        size = 8*self.size
+        v0 = signed(values[0], size) if self.signed else values[0]
+        v1 = signed(values[1], size) if self.signed else values[1]
         self._result = CompareIns.conds[self.condition][1](v0, v1)
         return self._result
 
@@ -667,7 +692,7 @@ class CompareIns:
         if self.condition not in CompareIns.conds:
             raise ValueError("Unexpected condition in CompareIns")
         exp = CompareIns.conds[self.condition][1](symvals[0], symvals[1])
-        if cond == False:
+        if cond is False:
             exp = z3.Not(exp)
         self._expression = exp
         return exp
@@ -713,9 +738,9 @@ def parse_trace_file(fname):
             # discard condtion jump and set previous compare condition
             elif Instruction.is_condjmp(ins):
                 prevcmpidx = previous_compare(instructions)
-                if prevcmpidx != NONE_ORDER and instructions[prevcmpidx].condition is None:
-                    instructions[prevcmpidx].condition = ins.condition
+                if prevcmpidx != NONE_ORDER and not instructions[prevcmpidx].setted_condition():
                     instructions[prevcmpidx].signed = ins.signed
+                    instructions[prevcmpidx].condition = ins.condition
                 else:
                     warn("Discard single condtion jump. (0x{:x}: {})".format(ins.addr, ins.asm))
             else:
@@ -960,10 +985,9 @@ def concolic_execute(instructions, seed):
             symvals[k] = symval
 
         if Instruction.is_compare(ins):
-            exp = ins.symbolize(symvals)      if not ins.optimized else True
+            exp = ins.symbolize(symvals) if not ins.optimized else True
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
-            if not ins.optimized and not ((ins.execute() and ins.condition == COND_EQ) \
-                                   or (not ins.execute() and ins.condition == COND_NE)):
+            if not ins.optimized and Instruction.is_hard_compare(ins):
                 info("Now begin checking compare sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
                 solver = z3.Solver()
                 solver.add(*recent_contraint)
@@ -1134,7 +1158,7 @@ def main():
     if len(sys.argv) > 1 and not any(h in sys.argv for h in ('-h', '--help', '-?')):
         if not disabled_aslr():
             print("Please disable ASLR via: sysctl kernel.randomize_va_space=0")
-        return 104
+            return 104
 
     args = parser.parse_args()
 
