@@ -44,8 +44,8 @@ parser.add_argument('-s', '--server',
         help="server mode with stdin and stdout")
 parser.add_argument('-i', '--input', dest='seed_file', help='A seed file')
 parser.add_argument('-q', '--quiet', dest='quiet', action='store_true', default=False, help='suppress message output')
-parser.add_argument('--detect-struct',
-        dest='detect_struct',
+parser.add_argument('--detect-structure',
+        dest='detect_structure',
         action='store_true',
         default=False,
         help='detect input\'s structure')
@@ -127,6 +127,9 @@ class Operand:
         self._value = value
         self._size = size
 
+    def set_instruction(self, ins):
+        self.ins = ins
+
     @property
     def offset(self):
         return self._offset
@@ -143,9 +146,25 @@ class Operand:
         assert 0 <= idx < self.size
         return Operand(self.offset[idx:idx+1], get_byte(self.value, idx), 1)
 
-    def subpart(self, start, end):
+    def subbytes(self, start, end):
         assert 0 <= start < end < self.size
         return Operand(self.offset[start:end], get_bytes(self.value, start, end), end-start)
+
+
+class Field:
+    def __init__(self, type_, start, len_):
+        self.type = type_
+        self.start = start
+        self.len = len_
+        self.reversed = len_ < 0
+
+    def __str__(self):
+        if self._reversed:
+            return "[{} {})".format(self.start, self.start + self._len + 1)
+        return "[{} {})".format(self.start, self.start + self._len - 1)
+
+    def __repr__(self):
+        return str(self)
 
 
 class Instruction:
@@ -225,6 +244,12 @@ class Instruction:
             return False
         name = ins.name if isinstance(ins, ArithmeticIns) else ins.split()[0]
         return name in ('div', 'idiv')
+
+    @staticmethod
+    def get_imm(ins):
+        """获取指令中的立即数"""
+        regs = ins.asm.split()
+        return int(regs[-1], base=16) if regs[-1].startswith('0x') else None
 
     @staticmethod
     def _split_simd(addr, asm, size, offsets, values):
@@ -799,27 +824,75 @@ def build_datagraph(instructions, offset2idxes):
     return datagraph
 
 
-def is_operand_i2s():
+def is_operand_i2s(field, seed):
     pass
 
 
-def detect_multibytes_dependent(instructions, datagraph):
-    for i, ins in enumerate(instructions):
-        ins.multibytes = [set() for _ in ins.offsets]
-        for k, (offset, value) in enumerate(zip(ins.offsets, ins.values)):
-            previdx = datagraph[i][k]
-            operand_bytes = set(x for x in offset if x != NONE_OFFSET)
-            if previdx == NONE_ORDER:
-                ins.multibytes[k] = operand_bytes
-            else:
-                ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
-        if Instruction.is_compare(ins):
-            pass
+def is_operand_multibytes(ins, opn):
+    pass
 
 
 def is_operand_field(offset):
     pass
 
+
+def get_fields(offset):
+    fields = []
+    base = NONE_OFFSET
+    len_ = 0
+    for i in range(len(offset)+1):
+        off = offset[i] if i < len(offset) else NONE_OFFSET
+        if off == NONE_OFFSET:
+            if base != NONE_OFFSET:
+                fields.append(Field(0, base, len_ if len_ != 0 else 1))
+            base = off
+            len_ = 0
+        elif base == NONE_OFFSET:
+            base = off
+        # 1. [2]
+        elif len_ == 0:
+            if off in (base+1, base-1):
+                len_ = 2 if off == base+1 else -2
+            else:
+                fields.append(Field(0, base, 1))
+                base = off
+                len_ = 0
+        # 2. [1,2]/[2,1] last+dir != off 的情况
+        elif base+len_ == off:
+            len_ += 1 if off > base else -1
+        else:
+            fields.append(Field(0, base, len_ if len_ != 0 else 1))
+            base = off
+            len_ = 0
+    # filter
+    return [field for field in fields if field.len >= 2]
+
+
+def is_magic_compare():
+    pass
+
+
+def detect_structure(instructions, datagraph, input_, upper=64):
+    for i, ins in enumerate(instructions):
+        ins.multibytes = [set() for _ in ins.offsets]
+        ins.is_multibytes = [False for _ in ins.offsets]
+        for k, (offset, value) in enumerate(zip(ins.offsets, ins.values)):
+            operand_bytes = set(x for x in offset if x != NONE_OFFSET)
+            previdx = datagraph[i][k]
+            if previdx == NONE_ORDER:
+                ins.multibytes[k] = operand_bytes
+            elif any(instructions[previdx].is_multibytes):
+                ins.is_mulibytes[k] = True
+            else:
+                ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
+                ins.is_mulibytes[k] = len(ins.multibytes[k]) > upper
+        # 判断是否为魔法数字
+        if not ins.optimized and Instruction.is_compare(ins):
+            assert 2 == len(ins.offsets)
+            fields = get_fields(ins.offsets[0])
+            imm = Instruction.get_imm(ins)
+            if imm is not None and 1 == len(fields):
+                pass
 
 def gather_magic_field(instructions):
     pass
@@ -1195,11 +1268,16 @@ def main():
 
     # trace file + concolic execution
     if args.trace_file:
-        if args.detect_struct:
-            pass
+        seed = readfile(args.seed_file)
+        instructions = parse_trace_file(args.trace_file)
+        if args.detect_structure:
+            addr2idxes = groupby_addr(instructions)
+            offset2idxes = groupby_offset(instructions)
+            datagraph = build_datagraph(instructions, offset2idxes)
+            cmpgraph = build_cmpgraph(instructions)
+            optimize_loop(instructions, cmpgraph, addr2idxes)
+            detect_structure(instructions, datagraph)
         else:
-            seed = readfile(args.seed_file)
-            instructions = parse_trace_file(args.trace_file)
             result = concolic_execute(instructions, seed)
         return 0
 
