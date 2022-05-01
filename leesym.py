@@ -243,6 +243,9 @@ class Instruction:
         for i in range(0, size, width):
             suboffsets = tuple(offset[i:i+width] for offset in offsets)
             subvalues = tuple(get_bytes(val, i, i+width) for val in values)
+            # skip un tainted part
+            if all(is_offset_empty(offset) for offset in suboffsets):
+                continue
             ins = Instruction._classify(addr, asm, width, suboffsets, subvalues)
             ins.simd = True
             if Instruction.is_compare(ins):
@@ -906,7 +909,11 @@ def groupby_addr(instructions):
 
 
 def is_original(value, offset, seed):
-    return all(off == NONE_OFFSET or get_byte(value, i) == seed[off] for i, off in enumerate(offset))
+    return all(get_byte(value, i) == seed[off] for i, off in enumerate(offset) if off != NONE_OFFSET)
+
+
+def is_part_original(value, offset, seed):
+    return any(get_byte(value, i) == seed[off] for i, off in enumerate(offset) if off != NONE_OFFSET)
 
 
 def enable_sign_extend(val, offset, idx):
@@ -915,13 +922,14 @@ def enable_sign_extend(val, offset, idx):
     return all(offset[i] == NONE_OFFSET and get_byte(val, i) == ext for i in range(idx+1, len(offset)))
 
 
-def symbolize_value(value, offset, sign_extend=False):
+def symbolize_value(value, offset, sign_extend=False, seed=None):
     assert offset
     exp = None
     len_ = len(offset)
     for i, off in enumerate(offset):
-        if off == NONE_OFFSET:
-            byte = z3.BitVecVal(get_byte(value, i), 8)
+        byte = get_byte(value, i)
+        if off == NONE_OFFSET or (seed is not None and seed[off] != byte):
+            byte = z3.BitVecVal(byte, 8)
         else:
             byte = z3.BitVec("b{}".format(off), 8)
             if sign_extend and i+1 < len_ and enable_sign_extend(value, offset, i):
@@ -966,9 +974,7 @@ def concolic_execute(instructions, seed):
             previdx = datagraph[i][k]
             symval = None
             if not is_offset_empty(offset) and not ins.optimized:
-                if previdx == NONE_ORDER and is_original(value, offset, seed):
-                    symval = symbolize_value(value, offset, sign_extend=True)
-                elif previdx != NONE_ORDER:
+                if previdx != NONE_ORDER:
                     prevexp = instructions[previdx].expression
                     if prevexp.size() < insbits:
                         symval = z3.SignExt(insbits - prevexp.size(), prevexp)
@@ -976,6 +982,10 @@ def concolic_execute(instructions, seed):
                         symval = subpart(prevexp, 0, insbits)
                     else:
                         symval = prevexp
+                elif is_original(value, offset, seed):
+                    symval = symbolize_value(value, offset, sign_extend=True)
+                elif is_part_original(value, offset, seed):
+                    symval = symbolize_value(value, offset, seed=seed)
                 else:
                     # TODO 减少这种情况的发生
                     warn("Dependence chain is broken. {}: {}".format(i, Instruction.beautify(ins)))
