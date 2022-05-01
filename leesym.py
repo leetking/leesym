@@ -8,6 +8,7 @@ import struct
 import operator
 import argparse
 import itertools
+import subprocess
 from random import randint
 from collections import OrderedDict, deque
 from bisect import bisect_left
@@ -122,7 +123,7 @@ class InstructionErr(Exception):
     pass
 
 class Operand:
-    def __init__(self, offset, vlaue, size):
+    def __init__(self, offset, value, size):
         self._offset = offset
         self._value = value
         self._size = size
@@ -207,6 +208,7 @@ class Instruction:
 
     @staticmethod
     def is_simd(ins):
+        """SIMD Instruction"""
         if not isinstance(ins, str):
             return False
         name = ins.split()[0]
@@ -358,7 +360,7 @@ class ArithmeticIns:
     def contains(ins):
         return ins in ArithmeticIns.unary_ins \
                 or ins in ArithmeticIns.binary_ins \
-                or in in ArithmeticIns.multi_ins
+                or ins in ArithmeticIns.multi_ins
 
     @staticmethod
     def ror(val, shift, size):
@@ -543,7 +545,6 @@ class CondJumpIns:
                 or ins_name in CondJumpIns.unsigned_ins \
                 or ins_name in CondJumpIns.unspport_ins
 
-
     def __init__(self, addr, asm):
         self.addr = addr
         self.asm = asm
@@ -593,7 +594,7 @@ class CompareIns:
     cmp_ins = ('cmp', 'cmpsb', 'cmpsw', 'cmpsd')
 
     @staticmethod
-    def contains(ins_name):
+    def contains(ins):
         return ins in CompareIns.cmpeq_ins \
                 or ins in CompareIns.cmp_ins
 
@@ -709,7 +710,7 @@ def parse_trace_file(fname):
             # splited SIMD instruction
             if isinstance(ins, (tuple, list)):
                 instructions.extend(ins)
-            # discard condtion jump
+            # discard condtion jump and set previous compare condition
             elif Instruction.is_condjmp(ins):
                 prevcmpidx = previous_compare(instructions)
                 if prevcmpidx != NONE_ORDER and instructions[prevcmpidx].condition is None:
