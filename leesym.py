@@ -1124,7 +1124,17 @@ def server_mode():
     return 0
 
 
+def disabled_aslr():
+    v = subprocess.check_output(['sysctl', '-n', 'kernel.randomize_va_space'])
+    return b'0' == v.strip()
+
+
 def main():
+    if len(sys.argv) > 1 and not any(h in sys.argv for h in ('-h', '--help', '-?')):
+        if not disabled_aslr():
+            print("Please disable ASLR via: sysctl kernel.randomize_va_space=0")
+        return 104
+
     args = parser.parse_args()
 
     if args.quiet:
@@ -1173,7 +1183,9 @@ def main():
 
     # invalid useage
     parser.print_usage()
+    return 103
 
 
 if __name__ == '__main__':
-    main()
+    ret = main()
+    sys.exit(ret)
