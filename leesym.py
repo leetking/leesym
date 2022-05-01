@@ -328,14 +328,14 @@ class Instruction:
     def beautify(ins):
         result = ""
         if Instruction.is_arimetic(ins):
-            result = " => {}".format(ins.execute())
+            result = " => {:02x}".format(ins.execute())
         name = ins.name
         if Instruction.is_compare(ins):
             name = ins._strcond()
         if Instruction.is_compare(ins) and ins.signed:
             values = ", ".join("{}".format(signed(v, 8*ins.size)) for v in ins.values)
         else:
-            values = ", ".join("{}".format(v) for v in ins.values)
+            values = ", ".join("{:02x}".format(v) for v in ins.values)
         return f"{name} {values}{result}"
 
 
@@ -588,7 +588,7 @@ class CondJumpIns:
         if self.name in CondJumpIns.unspport_ins:
             warn("Ignore condition jump {}.".format(self.name))
             return False
-        raise InstructionErr("Unspport instruction {}".format(ins))
+        raise InstructionErr("Unspport instruction {}".format(self.name))
 
     @property
     def condition(self):

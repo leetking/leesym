@@ -777,7 +777,7 @@ static void mark_as_leesym_done(struct queue_entry* q)
 
   ck_free(fn);
 
-  //q->was_concolized = 1;
+  q->was_concolized = 1;
 }
 
 
@@ -5316,14 +5316,10 @@ static u8 fuzz_one(char** argv) {
       //SAYF("input%d: %s\n", stage_cur, inputs[stage_cur]);
       off_t fsize = 0;
       u8 *input = readfile(inputs[stage_cur], &fsize);
-      struct queue_entry *old_queue_top = queue_top;
-      // TODO 这里不跳过有啥问题吗？
       common_fuzz_stuff(argv, input, fsize);
-      // 对于 leesym 发现的种子，不再进行符号执行
-      if (queue_top != old_queue_top) mark_as_leesym_done(queue_top);
       if (input) ck_free(input);
   }
-  queue_cur->was_concolized = 1;
+  mark_as_leesym_done(queue_cur);
   if (inputs) free_string_vector(inputs, stage_max);
 
 skip_leesym:

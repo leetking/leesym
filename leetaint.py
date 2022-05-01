@@ -39,6 +39,8 @@ def leetaint(inputfile, outdir, cmds):
     pin_path = os.path.join(PIN_ROOT, 'pin')
     trace_out = os.path.join(outdir, 'trace.txt')
     trace_log = os.path.join(outdir, 'trace.log')
+    cmdline_txt = os.path.join(outdir, 'leetaint.cmdine.txt')
+    #leetaint_log = os.path.join(outdir, 'leetaint.log')
     if isinstance(cmds, str):
         target_cmd = cmds.replace('@@', inputfile)
         target_arch = check_binary(cmds.split()[0])
@@ -65,14 +67,13 @@ def leetaint(inputfile, outdir, cmds):
         redirect_stdin = f"< {inputfile}"
 
     cmd = f"env PIN_ROOT={PIN_ROOT} {pin_path} -t {pintool} -i {inputfile} -o {trace_out} -l {trace_log} -- {target_cmd} {redirect_stdin} > /dev/null"
-    with open(os.path.join(outdir, 'leetaint.log'), 'w') as fp:
-        print('[CMD]:', cmd, file=fp)
+    with open(cmdline_txt, 'w') as fp:
+        print(cmd, file=fp)
     print('[CMD]:', cmd, file=sys.stderr)
     start_time = time.time()
     os.system(cmd)
     print("leetaint takes {:.3f} seconds".format(time.time() - start_time), file=sys.stderr)
     return True
-
 
 
 def parse_args():
