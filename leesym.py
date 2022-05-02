@@ -159,9 +159,9 @@ class Field:
         self.reversed = len_ < 0
 
     def __str__(self):
-        if self._reversed:
-            return "[{} {})".format(self.start, self.start + self._len + 1)
-        return "[{} {})".format(self.start, self.start + self._len - 1)
+        if self.reversed:
+            return "[{} {})".format(self.start, self.start + self.len + 1)
+        return "[{} {})".format(self.start, self.start + self.len - 1)
 
     def __repr__(self):
         return str(self)
@@ -868,8 +868,16 @@ def get_fields(offset):
     return [field for field in fields if field.len >= 2]
 
 
-def is_magic_compare():
-    pass
+magic_numbers = dict()
+
+def add_magic_number(addr, field, magic):
+    global magic_numbers
+    if addr not in magic_numbers:
+        magic_numbers[addr] = (field, magic)
+
+
+def is_magic_compare(ins):
+    return ins.addr in magic_numbers
 
 
 def detect_structure(instructions, datagraph, input_, upper=64):
@@ -885,14 +893,18 @@ def detect_structure(instructions, datagraph, input_, upper=64):
                 ins.is_mulibytes[k] = True
             else:
                 ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
-                ins.is_mulibytes[k] = len(ins.multibytes[k]) > upper
-        # 判断是否为魔法数字
+                ins.is_multibytes[k] = len(ins.multibytes[k]) > upper
+        # 寻找各种字段
         if not ins.optimized and Instruction.is_compare(ins):
+            # 判断是否为魔法数字
             assert 2 == len(ins.offsets)
             fields = get_fields(ins.offsets[0])
             imm = Instruction.get_imm(ins)
             if imm is not None and 1 == len(fields):
-                pass
+                field = fields[0]
+                debug("magic number:", hex(ins.addr), ins.asm, field, hex(imm))
+                add_magic_number(ins.addr, field, imm)
+
 
 def gather_magic_field(instructions):
     pass
@@ -1008,7 +1020,7 @@ def symbolize_value(value, offset, sign_extend=False, seed=None):
             if sign_extend and i+1 < len_ and enable_sign_extend(value, offset, i):
                 byte = z3.SignExt(8*(len_ - i - 1), byte)
                 exp = z3.Concat(byte, exp) if exp is not None else byte
-                return exp
+                return z3.simplify(exp)
         exp = z3.Concat(byte, exp) if exp is not None else byte
     return z3.simplify(exp)
     #return exp
@@ -1287,7 +1299,7 @@ def main():
             datagraph = build_datagraph(instructions, offset2idxes)
             cmpgraph = build_cmpgraph(instructions)
             optimize_loop(instructions, cmpgraph, addr2idxes)
-            detect_structure(instructions, datagraph)
+            detect_structure(instructions, datagraph, seed)
         else:
             result = concolic_execute(instructions, seed)
         return 0
