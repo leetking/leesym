@@ -303,14 +303,14 @@ class Instruction:
     def beautify(ins):
         result = ""
         if Instruction.is_arimetic(ins):
-            result = " => {:02x}".format(ins.execute())
+            result = " => 0x{:02x}".format(ins.execute())
         name = ins.name
         if Instruction.is_compare(ins):
             name = ins._strcond()
         if Instruction.is_compare(ins) and ins.signed:
             values = ", ".join("{}".format(signed(v, 8*ins.size)) for v in ins.values)
         else:
-            values = ", ".join("{:02x}".format(v) for v in ins.values)
+            values = ", ".join("0x{:02x}".format(v) for v in ins.values)
         return f"{name} {values}{result}"
 
 
@@ -964,7 +964,8 @@ def concolic_execute(instructions, seed):
     z3.set_param(timeout=30*1000)        # 30s (unit: ms) for a solver
     #z3.set_param(max_memory=1*1024*1024*1024)  # 1G, unit: B, TODO 并没有效果，因为不支持
     ret = set()
-    recent_contraint = deque(maxlen=15)
+    path_contraint = deque(maxlen=15)
+    arith_contraint = deque(maxlen=15)
     simd_contraint = []
     for i, ins in enumerate(instructions):
         insbits = 8*ins.size
@@ -998,10 +999,14 @@ def concolic_execute(instructions, seed):
             exp = ins.symbolize(symvals) if not ins.optimized else True
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
             if not ins.optimized and Instruction.is_hard_compare(ins):
-                info("Now begin checking compare sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
+                total_contraints = path_contraint + arith_contraint + deque(simd_contraint)
+                info("Now begin checking compare sat, with exps:",
+                        "{} = {} + {} + {} + 1".format(len(total_contraints)+1,
+                            len(path_contraint),
+                            len(arith_contraint),
+                            len(simd_contraint)))
                 solver = z3.Solver()
-                solver.add(*recent_contraint)
-                solver.add(*simd_contraint)
+                solver.add(*total_contraints)
                 solver.add(z3.Not(exp))
                 rst = solver.check()
                 if rst == z3.sat:
@@ -1015,19 +1020,24 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
+            if not ins.optimized:
                 if Instruction.is_splited_simd(ins):
                     simd_contraint.append(z3.Not(exp))
                 else:
-                    recent_contraint.append(exp)
+                    path_contraint.append(exp)
                     simd_contraint = []
         elif Instruction.is_jump(ins):
             pass
         elif Instruction.is_arimetic(ins):
             if Instruction.is_division(ins) and not ins.optimized:
-                info("Now begin checking div sat, with exps:", len(recent_contraint) + len(simd_contraint) +1)
+                total_contraints = path_contraint + arith_contraint + deque(simd_contraint)
+                info("Now begin checking div sat, with exps:",
+                        "{} = {} + {} + {} + 1".format(len(total_contraints)+1,
+                            len(path_contraint),
+                            len(arith_contraint),
+                            len(simd_contraint)))
                 solver = z3.Solver()
-                solver.add(*recent_contraint)
-                solver.add(*simd_contraint)
+                solver.add(*total_contraints)
                 solver.add(0 == symvals[1])
                 rst = solver.check()
                 if rst == z3.sat:
@@ -1041,6 +1051,8 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
+                # divisor != 0
+                arith_contraint.append(0 != symvals[1])
             # symbolize this expression
             ins.symbolize(symvals)
         else:
