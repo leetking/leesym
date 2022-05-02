@@ -995,12 +995,12 @@ def concolic_execute(instructions, seed):
                 symval = z3.BitVecVal(value, 8*ins.size)
             symvals[k] = symval
 
-        if Instruction.is_compare(ins):
-            exp = ins.symbolize(symvals) if not ins.optimized else True
+        if Instruction.is_compare(ins) and not ins.optimized:
+            exp = ins.symbolize(symvals)
             # 突破不等交给 Fuzzer，而不是 SymExe. 没有优化的指令才进行计算
-            if not ins.optimized and Instruction.is_hard_compare(ins):
+            if Instruction.is_hard_compare(ins):
                 total_contraints = path_contraint + arith_contraint + deque(simd_contraint)
-                info("Now begin checking compare sat, with exps:",
+                info("Now begin checking compare sat, with contraints:",
                         "{} = {} + {} + {} + 1".format(len(total_contraints)+1,
                             len(path_contraint),
                             len(arith_contraint),
@@ -1020,18 +1020,17 @@ def concolic_execute(instructions, seed):
                     info("Can't resolve. {}: {}".format(i, Instruction.beautify(ins)))
                 else:
                     raise ValueError("Unknow result solver returned")
-            if not ins.optimized:
-                if Instruction.is_splited_simd(ins):
-                    simd_contraint.append(z3.Not(exp))
-                else:
-                    path_contraint.append(exp)
-                    simd_contraint = []
+            if Instruction.is_splited_simd(ins):
+                simd_contraint.append(z3.Not(exp))
+            else:
+                path_contraint.append(exp)
+                simd_contraint = []
         elif Instruction.is_jump(ins):
             pass
         elif Instruction.is_arimetic(ins):
             if Instruction.is_division(ins) and not ins.optimized:
                 total_contraints = path_contraint + arith_contraint + deque(simd_contraint)
-                info("Now begin checking div sat, with exps:",
+                info("Now begin checking div sat, with contraints:",
                         "{} = {} + {} + {} + 1".format(len(total_contraints)+1,
                             len(path_contraint),
                             len(arith_contraint),
