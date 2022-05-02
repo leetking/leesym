@@ -430,7 +430,7 @@ VOID traceCMPMemReg(ADDRINT insAddr, string insDis, UINT32 opCount, ADDRINT addr
     if (isRegisterTainted(reg) || mem.tainted) {
         cmp_tainted = true;
         UINT64 memval = read_uint((UINT8*)addr, size);
-        tracelog_memreg(insAddr, insDis, addr, memval, reg, memval, size);
+        tracelog_memreg(insAddr, insDis, addr, memval, reg, val, size);
     }
 }
 
