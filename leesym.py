@@ -19,7 +19,7 @@ from leetaint import leetaint
 OPERAND_DISTANCE_MAX = 200   # datagraph 操作数来源最多向上条数
 LOOPINS_MAX = 16             # 目前调小这个以便处理循环中的校验和算法 TODO 后续加入校验判断识别，以跳过运算
                              # 从 8 调整到 16
-CKSUM_MIN_BYTES = 64         # 一个操作数依赖多个字节认为是校验和
+CHKSUM_MIN_BYTES = 64        # 一个操作数依赖多个字节认为是校验和
 
 NONE_OFFSET = -1
 NONE_ORDER  = -1
@@ -151,17 +151,26 @@ class Operand:
         return Operand(self.offset[start:end], get_bytes(self.value, start, end), end-start)
 
 
+FIELD_MAGIC = 0x1
+FIELD_LENGTH = 0x2
+FIELD_CHKSUM = 0x3
+FIELD_TYPE = 0x4
+
 class Field:
-    def __init__(self, type_, start, len_):
-        self.type = type_
-        self.start = start
-        self.len = len_
+    def __init__(self, idx, off, len_):
+        """idx: start index in operand bytes array
+           off: start offset in input file
+           len_: positive or negtive
+        """
+        self.len = abs(len_)
         self.reversed = len_ < 0
+        self.operand_slice = slice(idx, idx + self.len, 1)
+        self.offset_slice = slice(off, off + len_, 1 if len_ > 0 else -1)
 
     def __str__(self):
-        if self.reversed:
-            return "[{} {})".format(self.start, self.start + self.len + 1)
-        return "[{} {})".format(self.start, self.start + self.len - 1)
+        return "<({}, {}, {})@[{}, {})>".format(
+                self.offset_slice.start, self.offset_slice.stop, self.offset_slice.step,
+                self.operand_slice.start, self.operand_slice.stop)
 
     def __repr__(self):
         return str(self)
@@ -838,31 +847,32 @@ def is_operand_field(offset):
 
 def get_fields(offset):
     fields = []
-    base = NONE_OFFSET
+    start = NONE_ORDER
     len_ = 0
     for i in range(len(offset)+1):
         off = offset[i] if i < len(offset) else NONE_OFFSET
+        base = offset[start] if start != NONE_ORDER else NONE_OFFSET
         if off == NONE_OFFSET:
             if base != NONE_OFFSET:
-                fields.append(Field(0, base, len_ if len_ != 0 else 1))
-            base = off
+                fields.append(Field(start, base, len_ if len_ != 0 else 1))
+            start = i
             len_ = 0
         elif base == NONE_OFFSET:
-            base = off
+            start = i
         # 1. [2]
         elif len_ == 0:
             if off in (base+1, base-1):
                 len_ = 2 if off == base+1 else -2
             else:
-                fields.append(Field(0, base, 1))
-                base = off
+                fields.append(Field(start, base, 1))
+                start = i
                 len_ = 0
         # 2. [1,2]/[2,1] last+dir != off 的情况
         elif base+len_ == off:
             len_ += 1 if off > base else -1
         else:
-            fields.append(Field(0, base, len_ if len_ != 0 else 1))
-            base = off
+            fields.append(Field(start, base, len_ if len_ != 0 else 1))
+            start = i
             len_ = 0
     # filter
     return [field for field in fields if field.len >= 2]
@@ -870,17 +880,56 @@ def get_fields(offset):
 
 magic_numbers = dict()
 
-def add_magic_number(addr, field, magic):
+def add_magic_number(addr, ins):
     global magic_numbers
     if addr not in magic_numbers:
+        field = get_fields(ins.offsets[0])[0]
+        magic = Instruction.get_imm(ins)
         magic_numbers[addr] = (field, magic)
 
 
-def is_magic_compare(ins):
-    return ins.addr in magic_numbers
+def is_magic_compare(ins, input_):
+    if ins.addr in magic_numbers:
+        return True
+    if not Instruction.is_compare(ins):
+        return False
+    assert 2 == len(ins.offsets)
+    offset = ins.offsets[0]
+    fields = get_fields(offset)
+    imm = Instruction.get_imm(ins)
+    if imm is None or 1 != len(fields):
+        return False
+    field = fields[0]
+    if (0, ins.size) != (field.operand_slice.start, field.operand_slice.stop):
+        return False
+    orig_v = int.from_bytes(input_[field.offset_slice], 'big' if field.reversed else 'little')
+    value = ins.values[0]
+    return orig_v == value
 
 
-def detect_structure(instructions, datagraph, input_, upper=64):
+checksums = dict()
+
+def add_checksum(addr, ins):
+    global checksums
+    if addr not in checksums:
+        checksums[addr] = ins
+
+
+def is_checksum_compare(ins, input_):
+    if ins.addr in checksums:
+        return True
+    if not Instruction.is_compare(ins):
+        return False
+    if not any(ins.is_multibytes):
+        return False
+    assert 2 == len(ins.offsets)
+    imm = Instruction.get_imm(ins)
+    for this in (0, 1):
+        that = 1 - this
+        fields = get_fields(ins.offsets[this])
+
+
+def detect_structure(instructions, datagraph, input_, chksum_min_bytes=CHKSUM_MIN_BYTES):
     for i, ins in enumerate(instructions):
         ins.multibytes = [set() for _ in ins.offsets]
         ins.is_multibytes = [False for _ in ins.offsets]
@@ -893,17 +942,17 @@ def detect_structure(instructions, datagraph, input_, upper=64):
                 ins.is_mulibytes[k] = True
             else:
                 ins.multibytes[k] = operand_bytes | set(itertools.chain(*instructions[previdx].multibytes))
-                ins.is_multibytes[k] = len(ins.multibytes[k]) > upper
+                ins.is_multibytes[k] = len(ins.multibytes[k]) > chksum_min_bytes
         # 寻找各种字段
         if not ins.optimized and Instruction.is_compare(ins):
             # 判断是否为魔法数字
-            assert 2 == len(ins.offsets)
-            fields = get_fields(ins.offsets[0])
-            imm = Instruction.get_imm(ins)
-            if imm is not None and 1 == len(fields):
-                field = fields[0]
+            if is_magic_compare(ins, input_):
+                field = get_fields(ins.offsets[0])[0]
+                imm = Instruction.get_imm(ins)
                 debug("magic number:", hex(ins.addr), ins.asm, field, hex(imm))
-                add_magic_number(ins.addr, field, imm)
+                add_magic_number(ins.addr, ins)
+            elif is_checksum_compare(ins, input_):
+                pass
 
 
 def gather_magic_field(instructions):
