@@ -8,21 +8,7 @@
 
 compile_commands.json
 
-intriguer_afl/afl-analyze
-intriguer_afl/afl-as
-intriguer_afl/afl-clang
-intriguer_afl/afl-clang++
-intriguer_afl/afl-fuzz
-intriguer_afl/afl-g++
-intriguer_afl/afl-gcc
-intriguer_afl/afl-gotcpu
-intriguer_afl/afl-showmap
-intriguer_afl/afl-tmin
-intriguer_afl/as
-
 pintool/obj-ia32/
 pintool/obj-intel64/
-
-traceAnalyzer/traceAnalyzer
 
 __pycache__/

@@ -833,18 +833,6 @@ def build_datagraph(instructions, offset2idxes):
     return datagraph
 
 
-def is_operand_i2s(field, seed):
-    pass
-
-
-def is_operand_multibytes(ins, opn):
-    pass
-
-
-def is_operand_field(offset):
-    pass
-
-
 def get_fields(offset):
     fields = []
     start = NONE_ORDER
@@ -953,18 +941,6 @@ def detect_structure(instructions, datagraph, input_, chksum_min_bytes=CHKSUM_MI
                 add_magic_number(ins.addr, ins)
             elif is_checksum_compare(ins, input_):
                 pass
-
-
-def gather_magic_field(instructions):
-    pass
-
-
-def gather_checksum_field(instructions):
-    pass
-
-
-def gather_length_field(instructions):
-    pass
 
 
 # TODO 通过实验 hash 函数来测试此函数
